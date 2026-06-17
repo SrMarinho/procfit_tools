@@ -25,11 +25,8 @@ class QueryParametro:
 
     @property
     def is_required(self) -> bool:
-        """Heurística: se o TITULO contiver 'Vazio=Todos' ou similar, é opcional."""
-        if not self.titulo:
-            return True
-        lower = self.titulo.lower()
-        return not any(marker in lower for marker in ("vazio=", "opcional", "(opcional)"))
+        """Convenção do Procfit: TITULO terminado em '*' indica obrigatório."""
+        return bool(self.titulo) and self.titulo.rstrip().endswith("*")
 
 
 @dataclass

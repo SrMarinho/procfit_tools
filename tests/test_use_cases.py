@@ -36,8 +36,8 @@ def mock_query_repo():
 def mock_param_repo():
     repo = MagicMock()
     repo.listar_por_consulta.return_value = [
-        QueryParametro(nome="DATA_INI", ordem=10, titulo="Data Inicial", lookup="DATA"),
-        QueryParametro(nome="DATA_FIM", ordem=20, titulo="Data Final"),
+        QueryParametro(nome="DATA_INI", ordem=10, titulo="Data Inicial *", lookup="DATA"),
+        QueryParametro(nome="DATA_FIM", ordem=20, titulo="Data Final *"),
         QueryParametro(nome="MARCA", ordem=30, titulo="Marcas (Vazio=Todas)"),
     ]
     return repo
@@ -96,8 +96,8 @@ class TestDescreverConsultaUseCase:
         assert result.sql == "SELECT 1"
         assert len(result.parametros) == 3
         assert result.parametros[0].flag == "data-ini"
-        assert result.parametros[0].obrigatorio is True  # DATA_INI não tem vazio=todas
-        assert result.parametros[2].obrigatorio is False  # MARCA tem
+        assert result.parametros[0].obrigatorio is True  # DATA_INI tem '*'
+        assert result.parametros[2].obrigatorio is False  # MARCA sem '*'
 
     def test_execute_consulta_inexistente(self, mock_query_repo, mock_param_repo):
         mock_query_repo.buscar.return_value = None

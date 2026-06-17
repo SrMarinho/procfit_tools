@@ -237,10 +237,14 @@ class TestQueryParametro:
         p = QueryParametro(nome="TIPO", ordem=10, titulo="Tipo")
         assert p.flag_name == "tipo"
 
-    def test_is_required_true_por_padrao(self):
-        p = QueryParametro(nome="EMPRESA", ordem=10, titulo="Empresa")
+    def test_is_required_true_com_asterisco(self):
+        p = QueryParametro(nome="EMPRESA", ordem=10, titulo="Empresa *")
         assert p.is_required is True
 
-    def test_is_required_false_para_vazio_todos(self):
+    def test_is_required_false_sem_asterisco(self):
         p = QueryParametro(nome="MARCA", ordem=10, titulo="Marcas (Vazio=Todas)")
+        assert p.is_required is False
+
+    def test_is_required_false_titulo_simples(self):
+        p = QueryParametro(nome="TIPO", ordem=10, titulo="Tipo")
         assert p.is_required is False

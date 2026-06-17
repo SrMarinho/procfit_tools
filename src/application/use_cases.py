@@ -50,7 +50,7 @@ class DescreverConsultaUseCase:
         if query is None:
             return None
 
-        params_db = self._param_repo.listar_por_consulta(nome)
+        params_db = sorted(self._param_repo.listar_por_consulta(nome), key=lambda p: p.ordem)
         params_dto = [
             ParametroDto(
                 nome=p.nome,
