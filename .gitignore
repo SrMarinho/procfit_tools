@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+
+# Caches / tools
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# Env
+.env
+
+# Outputs (exportações e SQL gerado via --dry-run)
+*.csv
+*.xlsx
+*.sql
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+*.spec
