@@ -361,6 +361,10 @@ class DynamicRunCommand(click.Command):
             output_str = f"{consulta}_{timestamp}.{formato.extension}"
         output = Path(output_str)
 
+        # Cria as pastas do output se não existirem
+        if output.parent and not output.parent.exists():
+            output.parent.mkdir(parents=True, exist_ok=True)
+
         # Proteção contra sobrescrita (spec 4.4)
         if output.exists() and not force:
             if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
