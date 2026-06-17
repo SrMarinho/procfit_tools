@@ -94,6 +94,32 @@ def _call_with_timeout(func: Callable[[], T], timeout: int = 15) -> T:
     return result[0]
 
 
+def _run_interruptible(func: Callable[[], T]) -> T:
+    """Executa func em thread daemon, deixando o main thread livre para Ctrl+C.
+
+    connectorx é Rust e segura a GIL durante o fetch, bloqueando o
+    KeyboardInterrupt. Rodando em daemon e fazendo join em fatias curtas, o
+    Ctrl+C é entregue imediatamente; a thread daemon morre junto com o processo.
+    """
+    result: list[T] = []
+    exception: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            result.append(func())
+        except BaseException as e:  # noqa: BLE001
+            exception.append(e)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    while thread.is_alive():
+        thread.join(timeout=0.1)
+
+    if exception:
+        raise exception[0]
+    return result[0]
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Wiring / Injeção de Dependência
 # ═══════════════════════════════════════════════════════════════════
@@ -383,8 +409,14 @@ class DynamicRunCommand(click.Command):
 
         try:
             assert self._run_uc is not None
+            run_uc = self._run_uc
             with console.status(f"Executando [cyan]{consulta}[/]..."):
-                resultado = self._run_uc.execute(consulta, valores, formato, output)
+                resultado = _run_interruptible(
+                    lambda: run_uc.execute(consulta, valores, formato, output)
+                )
+        except KeyboardInterrupt:
+            err_console.print("\n[yellow]⚠ Cancelado pelo usuário.[/]")
+            raise sys.exit(130)
         except ValueError as e:
             err_console.print(f"[bold red]✖[/] {e}")
             raise sys.exit(2)
