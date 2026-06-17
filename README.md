@@ -42,9 +42,6 @@ Variáveis lidas do `.env` (ver `.env.example`):
 | `PROCFIT_DB_DICIONARIO` | `PBS_NAZARIA_DICIONARIO_DEVELOPER` | Banco do dicionário (`CONSULTAS_PARAMS`) |
 | `PROCFIT_DB_USER` / `PROCFIT_DB_PASSWORD` | — | Credenciais |
 | `PROCFIT_DB_DRIVER` | `ODBC Driver 17 for SQL Server` | Driver ODBC |
-| `PROCFIT_COL_ID` | `CONSULTA` | Coluna do nome da consulta |
-| `PROCFIT_COL_QUERY` | `SQL` | Coluna do corpo SQL (ntext) |
-| `PROCFIT_COL_DESC` | `DESCRICAO` | Coluna da descrição |
 
 ## Uso
 

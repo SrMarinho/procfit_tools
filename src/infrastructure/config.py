@@ -24,7 +24,7 @@ class DbConfig:
     password: str = ""
     driver: str = "ODBC Driver 17 for SQL Server"
 
-    # Mapeamento de colunas da tabela CONSULTAS
+    # Colunas fixas da tabela CONSULTAS
     col_id: str = "CONSULTA"
     col_query: str = "SQL"
     col_desc: str = "DESCRICAO"
@@ -55,9 +55,6 @@ class DbConfig:
             user=os.environ.get("PROCFIT_DB_USER", ""),
             password=os.environ.get("PROCFIT_DB_PASSWORD", ""),
             driver=os.environ.get("PROCFIT_DB_DRIVER", "ODBC Driver 17 for SQL Server"),
-            col_id=os.environ.get("PROCFIT_COL_ID", "CONSULTA"),
-            col_query=os.environ.get("PROCFIT_COL_QUERY", "SQL"),
-            col_desc=os.environ.get("PROCFIT_COL_DESC", "DESCRICAO"),
             where_extra=os.environ.get("PROCFIT_DB_WHERE_EXTRA", ""),
         )
 
