@@ -101,6 +101,13 @@ class ExecutarConsultaUseCase:
                 raise ValueError(f"Parâmetro obrigatório '{p.nome}' não fornecido")
         return sql
 
+    def obter_descricao(self, nome: str) -> str:
+        """Descrição da consulta (consulta leve, sem o corpo SQL)."""
+        for c in self._repo.listar(nome, None):
+            if c.nome == nome:
+                return c.descricao
+        return ""
+
     def gerar_sql(self, nome: str, valores: dict[str, str]) -> str:
         """Monta o SQL final com os parâmetros substituídos, sem executar.
 

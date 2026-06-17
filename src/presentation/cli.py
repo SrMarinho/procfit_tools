@@ -410,7 +410,12 @@ class DynamicRunCommand(click.Command):
         try:
             assert self._run_uc is not None
             run_uc = self._run_uc
-            with console.status(f"Executando [cyan]{consulta}[/]..."):
+            try:
+                descricao = run_uc.obter_descricao(consulta)
+            except Exception:
+                descricao = ""
+            rotulo = f"[cyan]{consulta}[/]" + (f" — {descricao}" if descricao else "")
+            with console.status(f"Executando {rotulo}..."):
                 resultado = _run_interruptible(
                     lambda: run_uc.execute(consulta, valores, formato, output)
                 )
