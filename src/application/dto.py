@@ -40,5 +40,9 @@ class ResultadoDto:
     """Resultado da execução + exportação."""
     arquivo: str
     linhas: int
-    tempo_segundos: float
+    tempo_segundos: float  # tempo total (compat)
     formato: str
+    colunas: int = 0
+    tempo_consulta: float = 0.0
+    tempo_export: float = 0.0
+    tamanho_bytes: int = 0

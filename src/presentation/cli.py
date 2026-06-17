@@ -46,6 +46,16 @@ console = Console()
 err_console = Console(stderr=True)
 
 
+def _human_size(n: int) -> str:
+    """Formata bytes em B/KB/MB/GB."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Helpers: Timeout para chamadas ao banco
 # ═══════════════════════════════════════════════════════════════════
@@ -387,10 +397,20 @@ class DynamicRunCommand(click.Command):
             logger.exception("Falha na execução")
             raise sys.exit(3)
 
-        console.print(
-            f"[bold green]✔ Concluído![/] {resultado.arquivo} "
-            f"([bold]{resultado.linhas}[/] linhas em {resultado.tempo_segundos}s)"
-        )
+        console.print(f"[bold green]✔ Concluído![/] {resultado.arquivo}")
+
+        vazao = resultado.linhas / resultado.tempo_consulta if resultado.tempo_consulta else 0
+        metricas = Table(show_header=False, box=None, pad_edge=False)
+        metricas.add_column(style="dim")
+        metricas.add_column(style="bold")
+        metricas.add_row("Linhas", f"{resultado.linhas:,}".replace(",", "."))
+        metricas.add_row("Colunas", str(resultado.colunas))
+        metricas.add_row("Tempo consulta", f"{resultado.tempo_consulta}s")
+        metricas.add_row("Tempo exportação", f"{resultado.tempo_export}s")
+        metricas.add_row("Tempo total", f"{resultado.tempo_segundos}s")
+        metricas.add_row("Tamanho", _human_size(resultado.tamanho_bytes))
+        metricas.add_row("Vazão", f"{vazao:,.0f} linhas/s".replace(",", "."))
+        console.print(metricas)
 
     @staticmethod
     def _extract_consulta(args: list[str]) -> Optional[str]:

@@ -122,20 +122,27 @@ class ExecutarConsultaUseCase:
         sql = self._preparar(nome, valores)
 
         # 3. Executar
-        start = time.perf_counter()
+        t0 = time.perf_counter()
         table = self._executor.executar(sql, valores)
-        elapsed = time.perf_counter() - start
+        t_consulta = time.perf_counter() - t0
 
         # 4. Exportar (streaming)
         exporter = self._exporters.get(formato)
         if exporter is None:
             raise ValueError(f"Exportador para formato '{formato.value}' não configurado")
 
+        t1 = time.perf_counter()
         linhas = exporter.exportar(table, output)
+        t_export = time.perf_counter() - t1
 
+        tamanho = output.stat().st_size if output.exists() else 0
         return ResultadoDto(
             arquivo=str(output),
             linhas=linhas,
-            tempo_segundos=round(elapsed, 2),
+            tempo_segundos=round(t_consulta + t_export, 2),
             formato=formato.value,
+            colunas=table.num_columns,
+            tempo_consulta=round(t_consulta, 2),
+            tempo_export=round(t_export, 2),
+            tamanho_bytes=tamanho,
         )
