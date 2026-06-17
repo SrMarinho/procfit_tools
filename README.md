@@ -42,7 +42,9 @@ Variáveis lidas do `.env` (ver `.env.example`):
 | `PROCFIT_DB_DICIONARIO` | `PBS_NAZARIA_DICIONARIO_DEVELOPER` | Banco do dicionário (`CONSULTAS_PARAMS`) |
 | `PROCFIT_DB_USER` / `PROCFIT_DB_PASSWORD` | — | Credenciais |
 | `PROCFIT_DB_DRIVER` | `ODBC Driver 17 for SQL Server` | Driver ODBC |
-| `PROCFIT_COL_ID` / `PROCFIT_COL_QUERY` | `CONSULTA` / `QUERY` | Mapeamento de colunas |
+| `PROCFIT_COL_ID` | `CONSULTA` | Coluna do nome da consulta |
+| `PROCFIT_COL_QUERY` | `SQL` | Coluna do corpo SQL (ntext) |
+| `PROCFIT_COL_DESC` | `DESCRICAO` | Coluna da descrição |
 
 ## Uso
 
@@ -50,18 +52,27 @@ Invocação via `main.py` (entry point que adiciona `src/` ao path e chama
 `procfit.presentation.cli:main`):
 
 ```bash
-# Lista todas as consultas (com contagem de parâmetros e lookups)
-uv run main.py list
+# Lista nome + descrição. Filtro LIKE opcional (estilo SQL Server):
+uv run main.py list                          # todas
+uv run main.py list "B2B%"                   # NOME LIKE 'B2B%'
+uv run main.py list -d "%cliente%"           # DESCRICAO LIKE '%cliente%'
+uv run main.py list "B2B%" -d "%cliente%"    # ambos (AND)
 
-# Detalha uma consulta: SQL + parâmetros esperados
-uv run main.py show OL_APURACOES_MARCAS
+# Detalha uma consulta: nome + descrição + parâmetros (ordenados por ORDEM).
+# O SQL não aparece por padrão.
+uv run main.py show OL_APURACOES_MARCAS          # detalhes + parâmetros
+uv run main.py show OL_APURACOES_MARCAS -s       # + SQL formatado
+uv run main.py show OL_APURACOES_MARCAS --raw    # só o SQL cru (pipeable)
 
 # Executa e exporta. Os parâmetros viram flags dinâmicas vindas do banco.
 uv run main.py run OL_APURACOES_MARCAS \
     --data-ini 2024-01-01 \
     --data-fim 2024-12-31 \
     --format xlsx \
-    --output apuracao.xlsx
+    --output saida/apuracao.xlsx
+
+# Gera o SQL final com os parâmetros substituídos, sem executar (pipeable):
+uv run main.py run OL_APURACOES_MARCAS --data-ini 2024-01-01 --dry-run > q.sql
 ```
 
 Flags fixas do `run`:
@@ -69,13 +80,25 @@ Flags fixas do `run`:
 | Flag | Alias | Default | Descrição |
 |------|-------|---------|-----------|
 | `--format` | `-f` | `csv` | `csv` ou `xlsx` |
-| `--output` | `-o` | `<consulta>_<timestamp>.<ext>` | Arquivo de saída |
+| `--output` | `-o` | `<consulta>_<timestamp>.<ext>` | Arquivo de saída (pastas criadas se não existirem) |
 | `--verbose` | `-v` | `false` | Logs de debug |
 | `--force` | — | `false` | Sobrescreve a saída sem perguntar |
+| `--dry-run` | — | `false` | Gera o SQL parametrizado e imprime, sem executar (não valida obrigatórios) |
 
 As demais flags (`--data-ini`, `--empresa`, …) são **injetadas em runtime** a
 partir de `CONSULTAS_PARAMS`. Se o banco estiver inacessível, apenas as flags
 fixas aparecem (timeout de 5s, sem travar).
+
+**Parâmetros obrigatórios:** convenção do Procfit — `TITULO` terminado em `*`
+em `CONSULTAS_PARAMS` marca o parâmetro como obrigatório. O `run` valida e
+aborta listando os faltantes (o `--dry-run` não valida).
+
+**Métricas:** ao final de um `run` real (não `--dry-run`) é exibida uma tabela
+com linhas, colunas, tempo de consulta, tempo de exportação, tempo total,
+tamanho do arquivo e vazão (linhas/s).
+
+**Cancelamento:** `Ctrl+C` interrompe o `run` mesmo durante o fetch (sai com
+código 130).
 
 ## Exit codes
 
@@ -86,6 +109,7 @@ fixas aparecem (timeout de 5s, sem travar).
 | 2 | Erro de parâmetros (faltando ou inválidos) |
 | 3 | Erro de execução SQL |
 | 4 | Erro de escrita/exportação |
+| 130 | Cancelado pelo usuário (Ctrl+C) |
 
 ## Testes
 

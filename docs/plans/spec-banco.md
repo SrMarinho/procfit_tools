@@ -118,7 +118,7 @@ WHERE TABLE_NAME = 'CONSULTAS_PARAMS'
 | `CONSULTA` | varchar | FK para CONSULTAS.CONSULTA |
 | `ORDEM` | int | Ordem do parâmetro (10, 20, 30...) |
 | `PARAMETRO` | varchar | Nome do parâmetro (ex: `DATA_INI`) |
-| `TITULO` | varchar | Descrição amigável pro usuário |
+| `TITULO` | varchar | Descrição amigável pro usuário. **Terminado em `*` → parâmetro obrigatório** (convenção Procfit) |
 | `TAMANHO` | int | Tamanho máximo (ex: 15) |
 | `LOOKUP` | varchar? | Tabela de lookup (ex: `DATA`, `TIPOS_OLS`) |
 

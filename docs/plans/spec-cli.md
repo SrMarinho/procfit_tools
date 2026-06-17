@@ -53,7 +53,8 @@ A listagem consulta apenas o banco DADOS (nome + descrição); não lê
 
 ## 3. Comando: `show`
 
-Mostra detalhes de uma consulta: nome, descrição e parâmetros esperados.
+Mostra detalhes de uma consulta: nome, descrição e parâmetros esperados
+(ordenados pela coluna `ORDEM` de `CONSULTAS_PARAMS`).
 O **SQL não é exibido por padrão**.
 
 - `-s/--sql` → exibe o SQL **formatado** (rich Syntax) junto dos detalhes
@@ -87,8 +88,9 @@ Parâmetros detectados (3):
   └──────────────┴──────────┴─────────────┘
 ```
 
-Um parâmetro é considerado **opcional** se aparece em uma cláusula como
-`(:param IS NULL OR campo = :param)` ou com `COALESCE`/`ISNULL`.
+Um parâmetro é **obrigatório** quando o seu `TITULO` (em `CONSULTAS_PARAMS`)
+termina em `*` — convenção do Procfit. Sem o `*`, é opcional (omitido → `''`,
+semântica Vazio=Todos). Os parâmetros são exibidos na ordem da coluna `ORDEM`.
 
 ## 4. Comando: `run` — O Coração
 
@@ -166,14 +168,22 @@ uv run main.py run OL_APURACOES_MARCAS --data-ini 2024-01-01 --dry-run > apuraca
 
 ### 4.5 Exemplo de output
 
+Ao final de um `run` real (não `--dry-run`), exibe a linha de sucesso + uma
+tabela de **métricas** (rich):
+
 ```
-✓ Consulta "relatorio_vendas" encontrada
-✓ Parâmetros detectados: data_ini, data_fim, cod_cliente
-✓ 2 fornecidos, 1 opcional omitido
-▶ Executando... (1.234 linhas em 2.3s)
-▶ Exportando para vendas_20250101_120000.xlsx... (streaming)
-✓ Concluído! Arquivo: vendas_20250101_120000.xlsx (45.2 KB)
+✔ Concluído! saida/vendas.xlsx
+  Linhas             1.234
+  Colunas            8
+  Tempo consulta     2.3s
+  Tempo exportação   0.4s
+  Tempo total        2.7s
+  Tamanho            45.2 KB
+  Vazão              536 linhas/s
 ```
+
+As pastas do `--output` são criadas automaticamente se não existirem.
+`Ctrl+C` cancela a execução mesmo durante o fetch (exit code 130).
 
 Ou, com `--verbose`:
 
@@ -251,8 +261,9 @@ O help de cada um vem da coluna `TITULO`.
 | Consulta não encontrada | `✖ Consulta "x" não encontrada. Use 'procfit list'` + exit 1 |
 | Parâmetro obrigatório faltando | `✖ Parâmetros obrigatórios: data_ini, data_fim` + exit 1 |
 | Parâmetro extra fornecido (flag que não existe na query) | `⚠ O parâmetro "--foo" não é usado nesta consulta` (warning, ignora) |
-| Erro SQL | `✖ Erro na execução: [mensagem do SQL Server]` + exit 1 |
-| Falha de escrita | `✖ Erro ao escrever arquivo: [detalhe]` + exit 1 |
+| Erro SQL | `✖ Erro na execução: [mensagem do SQL Server]` + exit 3 |
+| Falha de escrita | `✖ Erro ao escrever arquivo: [detalhe]` + exit 4 |
+| Ctrl+C durante o run | `⚠ Cancelado pelo usuário.` + exit 130 |
 
 ## 7. Exit Codes
 
@@ -263,3 +274,4 @@ O help de cada um vem da coluna `TITULO`.
 | 2 | Erro de parâmetros (faltando ou inválidos) |
 | 3 | Erro de execução SQL |
 | 4 | Erro de escrita/exportação |
+| 130 | Cancelado pelo usuário (Ctrl+C) |
