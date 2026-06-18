@@ -1,6 +1,6 @@
 [project]
 name = "procfit"
-version = "0.1.0"
+version = "0.1.1"
 description = "CLI moderna para consultas do Procfit ERP — conector direto ao SQL Server com exportação streaming"
 readme = "README.md"
 requires-python = ">=3.11"

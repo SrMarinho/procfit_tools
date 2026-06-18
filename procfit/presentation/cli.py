@@ -608,7 +608,15 @@ def main() -> None:
     # Injeta o DynamicRunCommand (Click) no grupo Typer
     click_app = get_command(app)
     click_app.add_command(_make_run_command(), "run")  # type: ignore[union-attr]
-    click_app()
+    try:
+        click_app()
+    except Exception as e:
+        if type(e).__name__ in ("Exit", "Abort"):
+            code = getattr(e, "code", None)
+            if code is None:
+                code = e.args[0] if e.args and isinstance(e.args[0], int) else 0
+            sys.exit(code)
+        raise
 
 
 if __name__ == "__main__":
