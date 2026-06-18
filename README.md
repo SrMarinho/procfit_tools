@@ -44,7 +44,11 @@ uv run main.py --help
 ### Sem uv (pip puro)
 
 ```bash
-pip install .
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+# source .venv/bin/activate  # Linux/macOS
+pip install -e .
+procfit --help
 ```
 
 Em ambos os casos, copie o `.env.example` se quiser usar fallback via variáveis de ambiente:
