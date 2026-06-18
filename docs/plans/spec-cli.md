@@ -140,12 +140,25 @@ Na execução, o valor da flag é substituído no SQL via placeholder `:PARAMETR
 | Flag | Alias | Descrição | Default |
 |------|-------|-----------|---------|
 | `--format` | `-f` | Formato de exportação: `csv` ou `xlsx` | `csv` |
-| `--output` | `-o` | Caminho do arquivo de saída (**obrigatório**, exceto em `--dry-run`). `-o -` → CSV no stdout (métricas no stderr) | — |
+| `--output` | `-o` | Caminho do arquivo de saída. **Sem `-o` → tabela no terminal** (preview, até 100 linhas) | — |
+| `--stdout` | — | Imprime o CSV cru no stdout (pipeable); métricas no stderr | `false` |
 | `--verbose` | `-v` | Log detalhado da execução | `false` |
 | `--force` | — | Sobrescreve a saída sem perguntar | `false` |
 | `--dry-run` | — | Gera o SQL com os parâmetros substituídos e imprime (não executa) | `false` |
 
 Essas são fixas, fazem parte da CLI, não do banco.
+
+#### Modos de saída (precedência)
+
+`--dry-run` > `--stdout` > `-o` > preview. Resumo:
+
+- **`--dry-run`** → imprime o SQL parametrizado (não executa).
+- **`--stdout`** → executa e imprime o **CSV cru** no stdout (pipeable);
+  status e métricas vão pro **stderr** (não corrompem o output). `-f xlsx` é
+  rejeitado (binário).
+- **`-o arquivo`** → executa e grava o arquivo (csv/xlsx); métricas no stdout.
+- **sem nada** → executa e mostra os resultados como **tabela rich** no
+  terminal (preview, até 100 linhas; acima disso, avisa quantas faltam).
 
 #### `--dry-run` — gerar o SQL parametrizado
 

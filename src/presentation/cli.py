@@ -55,6 +55,56 @@ def _human_size(n: int) -> str:
     return f"{size:.1f} GB"
 
 
+_PREVIEW_LIMIT = 100
+
+
+def _render_metricas(
+    dest: Console,
+    *,
+    linhas: int,
+    colunas: int,
+    tempo_consulta: float,
+    tempo_export: float | None = None,
+    tempo_total: float | None = None,
+    tamanho: int | None = None,
+) -> None:
+    """Renderiza a tabela de métricas no console informado."""
+    vazao = linhas / tempo_consulta if tempo_consulta else 0
+    t = Table(show_header=False, box=None, pad_edge=False)
+    t.add_column(style="dim")
+    t.add_column(style="bold")
+    t.add_row("Linhas", f"{linhas:,}".replace(",", "."))
+    t.add_row("Colunas", str(colunas))
+    t.add_row("Tempo consulta", f"{round(tempo_consulta, 2)}s")
+    if tempo_export is not None:
+        t.add_row("Tempo exportação", f"{tempo_export}s")
+    if tempo_total is not None:
+        t.add_row("Tempo total", f"{tempo_total}s")
+    if tamanho is not None:
+        t.add_row("Tamanho", _human_size(tamanho))
+    t.add_row("Vazão", f"{vazao:,.0f} linhas/s".replace(",", "."))
+    dest.print(t)
+
+
+def _render_preview(table: Any, tempo_consulta: float) -> None:
+    """Imprime os resultados como tabela rich no terminal (preview)."""
+    total = table.num_rows
+    rich_t = Table(header_style="bold cyan")
+    for col in table.column_names:
+        rich_t.add_column(str(col))
+    for row in table.slice(0, _PREVIEW_LIMIT).to_pylist():
+        rich_t.add_row(*["" if v is None else str(v) for v in row.values()])
+    console.print(rich_t)
+    if total > _PREVIEW_LIMIT:
+        console.print(
+            f"[dim]... e mais {total - _PREVIEW_LIMIT} linhas. "
+            f"Use -o para exportar tudo.[/]"
+        )
+    _render_metricas(
+        console, linhas=total, colunas=table.num_columns, tempo_consulta=tempo_consulta
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Helpers: Timeout para chamadas ao banco
 # ═══════════════════════════════════════════════════════════════════
@@ -365,10 +415,13 @@ class DynamicRunCommand(click.Command):
         if verbose:
             logging.getLogger().setLevel(logging.DEBUG)
 
+        stdout = ctx.params.get("stdout", False)
+
         # Extrai parâmetros dinâmicos (tudo que NÃO é opção fixa)
         valores: dict[str, str] = {}
+        fixas = ("consulta", "format", "output", "verbose", "force", "dry_run", "stdout")
         for key, value in ctx.params.items():
-            if key in ("consulta", "format", "output", "verbose", "force", "dry_run"):
+            if key in fixas:
                 continue
             if value is not None:
                 valores[key.upper()] = str(value)
@@ -390,73 +443,77 @@ class DynamicRunCommand(click.Command):
             err_console.print(f"[bold red]✖[/] {e}")
             raise sys.exit(2)
 
-        # Output é obrigatório (sem -o não grava nada). Use "-" para stdout.
-        if not output_str:
-            err_console.print(
-                "[bold red]✖ Informe o arquivo de saída com -o/--output "
-                "(use -o - para stdout).[/]"
-            )
-            raise sys.exit(2)
-        to_stdout = output_str == "-"
-        output = Path(output_str)
-        # Em modo stdout os dados vão pro stdout; status/métricas vão pro stderr
-        # para não corromper o output.
-        msg_console = err_console if to_stdout else console
+        assert self._run_uc is not None
+        run_uc = self._run_uc
+        try:
+            descricao = run_uc.obter_descricao(consulta)
+        except Exception:
+            descricao = ""
+        rotulo = f"[cyan]{consulta}[/]" + (f" — {descricao}" if descricao else "")
 
-        if not to_stdout:
-            # Cria as pastas do output se não existirem
+        def _executar(thunk: Callable[[], T], status_console: Console) -> T:
+            """Roda o thunk com spinner e tratamento padrão de erros/Ctrl+C."""
+            try:
+                with status_console.status(f"Executando {rotulo}..."):
+                    return _run_interruptible(thunk)
+            except KeyboardInterrupt:
+                err_console.print("\n[yellow]⚠ Cancelado pelo usuário.[/]")
+                raise sys.exit(130)
+            except ValueError as e:
+                err_console.print(f"[bold red]✖[/] {e}")
+                raise sys.exit(2)
+            except OSError as e:
+                err_console.print(f"[bold red]✖ Erro ao escrever arquivo:[/] {e}")
+                logger.exception("Falha na escrita")
+                raise sys.exit(4)
+            except Exception as e:
+                err_console.print(f"[bold red]✖ Erro na execução:[/] {e}")
+                logger.exception("Falha na execução")
+                raise sys.exit(3)
+
+        # ── Modo --stdout: CSV cru no stdout; status/métricas no stderr ──
+        if stdout:
+            if formato is ExportFormato.XLSX:
+                err_console.print("[bold red]✖ XLSX é binário; --stdout só suporta csv.[/]")
+                raise sys.exit(2)
+            table, t_consulta = _executar(
+                lambda: run_uc.executar_tabela(consulta, valores), err_console
+            )
+            exporter = CsvExporter(ExportConfig().csv_delimiter)
+            linhas = exporter.exportar_stream(table, sys.stdout)
+            _render_metricas(
+                err_console, linhas=linhas, colunas=table.num_columns,
+                tempo_consulta=t_consulta,
+            )
+            return
+
+        # ── Modo -o: grava arquivo ──
+        if output_str:
+            output = Path(output_str)
             if output.parent and not output.parent.exists():
                 output.parent.mkdir(parents=True, exist_ok=True)
-
-            # Proteção contra sobrescrita (spec 4.4)
             if output.exists() and not force:
                 if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
                     console.print("Cancelado.")
                     raise sys.exit(0)
+            resultado = _executar(
+                lambda: run_uc.execute(consulta, valores, formato, output), console
+            )
+            console.print(f"[bold green]✔ Concluído![/] {resultado.arquivo}")
+            _render_metricas(
+                console, linhas=resultado.linhas, colunas=resultado.colunas,
+                tempo_consulta=resultado.tempo_consulta,
+                tempo_export=resultado.tempo_export,
+                tempo_total=resultado.tempo_segundos,
+                tamanho=resultado.tamanho_bytes,
+            )
+            return
 
-        try:
-            assert self._run_uc is not None
-            run_uc = self._run_uc
-            try:
-                descricao = run_uc.obter_descricao(consulta)
-            except Exception:
-                descricao = ""
-            rotulo = f"[cyan]{consulta}[/]" + (f" — {descricao}" if descricao else "")
-            with msg_console.status(f"Executando {rotulo}..."):
-                resultado = _run_interruptible(
-                    lambda: run_uc.execute(consulta, valores, formato, output)
-                )
-        except KeyboardInterrupt:
-            err_console.print("\n[yellow]⚠ Cancelado pelo usuário.[/]")
-            raise sys.exit(130)
-        except ValueError as e:
-            err_console.print(f"[bold red]✖[/] {e}")
-            raise sys.exit(2)
-        except OSError as e:
-            err_console.print(f"[bold red]✖ Erro ao escrever arquivo:[/] {e}")
-            logger.exception("Falha na escrita")
-            raise sys.exit(4)
-        except Exception as e:
-            err_console.print(f"[bold red]✖ Erro na execução:[/] {e}")
-            logger.exception("Falha na execução")
-            raise sys.exit(3)
-
-        destino = "stdout" if to_stdout else resultado.arquivo
-        msg_console.print(f"[bold green]✔ Concluído![/] {destino}")
-
-        vazao = resultado.linhas / resultado.tempo_consulta if resultado.tempo_consulta else 0
-        metricas = Table(show_header=False, box=None, pad_edge=False)
-        metricas.add_column(style="dim")
-        metricas.add_column(style="bold")
-        metricas.add_row("Linhas", f"{resultado.linhas:,}".replace(",", "."))
-        metricas.add_row("Colunas", str(resultado.colunas))
-        metricas.add_row("Tempo consulta", f"{resultado.tempo_consulta}s")
-        metricas.add_row("Tempo exportação", f"{resultado.tempo_export}s")
-        metricas.add_row("Tempo total", f"{resultado.tempo_segundos}s")
-        if not to_stdout:
-            metricas.add_row("Tamanho", _human_size(resultado.tamanho_bytes))
-        metricas.add_row("Vazão", f"{vazao:,.0f} linhas/s".replace(",", "."))
-        msg_console.print(metricas)
+        # ── Default: preview como tabela no terminal ──
+        table, t_consulta = _executar(
+            lambda: run_uc.executar_tabela(consulta, valores), console
+        )
+        _render_preview(table, t_consulta)
 
     @staticmethod
     def _extract_consulta(args: list[str]) -> Optional[str]:
@@ -501,7 +558,12 @@ def _make_run_command() -> click.Command:
                 ["--output", "-o"],
                 default=None,
                 type=click.Path(),
-                help="Arquivo de saída (obrigatório, exceto em --dry-run). Use - para stdout (csv).",
+                help="Arquivo de saída. Sem -o, os resultados aparecem como tabela no terminal.",
+            ),
+            click.Option(
+                ["--stdout"],
+                is_flag=True,
+                help="Imprime o CSV cru no stdout (pipeable); métricas vão pro stderr.",
             ),
             click.Option(
                 ["--verbose", "-v"],

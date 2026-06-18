@@ -6,7 +6,6 @@ Ambos usam streaming (write sem carregar tudo na RAM).
 from __future__ import annotations
 
 import csv
-import sys
 from pathlib import Path
 from typing import TextIO
 
@@ -28,13 +27,10 @@ class CsvExporter(Exporter):
         self._delimiter = delimiter
 
     def exportar(self, table: pa.Table, output: Path) -> int:
-        # "-" → escreve no stdout (pipeable)
-        if str(output) == "-":
-            return self._write(table, sys.stdout)
         with open(output, "w", newline="", encoding="utf-8-sig") as f:
-            return self._write(table, f)
+            return self.exportar_stream(table, f)
 
-    def _write(self, table: pa.Table, f: TextIO) -> int:
+    def exportar_stream(self, table: pa.Table, f: TextIO) -> int:
         total = 0
         writer = csv.writer(f, delimiter=self._delimiter)
 
@@ -62,8 +58,6 @@ class XlsxExporter(Exporter):
         self._sheet_name = sheet_name
 
     def exportar(self, table: pa.Table, output: Path) -> int:
-        if str(output) == "-":
-            raise ValueError("XLSX é binário e não pode ir para o stdout; use -f csv ou um arquivo.")
         from openpyxl import Workbook
 
         wb = Workbook(write_only=True)

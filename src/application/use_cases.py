@@ -10,6 +10,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pyarrow as pa
+
 from src.application.dto import (
     ConsultaDetalheDto,
     ConsultaDto,
@@ -107,6 +109,17 @@ class ExecutarConsultaUseCase:
             if c.nome == nome:
                 return c.descricao
         return ""
+
+    def executar_tabela(self, nome: str, valores: dict[str, str]) -> tuple[pa.Table, float]:
+        """Executa e devolve a Arrow Table + tempo de consulta (sem exportar).
+
+        Valida obrigatórios (é execução real). Usado pelos modos preview
+        (tabela no terminal) e --stdout.
+        """
+        sql = self._preparar(nome, valores)
+        start = time.perf_counter()
+        table = self._executor.executar(sql, valores)
+        return table, time.perf_counter() - start
 
     def gerar_sql(self, nome: str, valores: dict[str, str]) -> str:
         """Monta o SQL final com os parâmetros substituídos, sem executar.

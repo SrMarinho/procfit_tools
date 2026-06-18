@@ -68,6 +68,12 @@ uv run main.py run OL_APURACOES_MARCAS \
     --format xlsx \
     --output saida/apuracao.xlsx
 
+# Sem -o: resultados como tabela no terminal (preview, até 100 linhas).
+uv run main.py run VENDEDORES --inativos N
+
+# CSV cru no stdout (pipeable); métricas vão pro stderr.
+uv run main.py run VENDEDORES --inativos N --stdout > vendedores.csv
+
 # Gera o SQL final com os parâmetros substituídos, sem executar (pipeable):
 uv run main.py run OL_APURACOES_MARCAS --data-ini 2024-01-01 --dry-run > q.sql
 ```
@@ -77,7 +83,8 @@ Flags fixas do `run`:
 | Flag | Alias | Default | Descrição |
 |------|-------|---------|-----------|
 | `--format` | `-f` | `csv` | `csv` ou `xlsx` |
-| `--output` | `-o` | — | Arquivo de saída (**obrigatório**, exceto em `--dry-run`; pastas criadas se não existirem). Use `-o -` para enviar o CSV ao stdout (pipeable); métricas vão pro stderr |
+| `--output` | `-o` | — | Arquivo de saída (pastas criadas se não existirem). **Sem `-o`, os resultados aparecem como tabela no terminal** (preview, até 100 linhas) |
+| `--stdout` | — | `false` | Imprime o CSV cru no stdout (pipeable); status e métricas vão pro stderr |
 | `--verbose` | `-v` | `false` | Logs de debug |
 | `--force` | — | `false` | Sobrescreve a saída sem perguntar |
 | `--dry-run` | — | `false` | Gera o SQL parametrizado e imprime, sem executar (não valida obrigatórios) |
