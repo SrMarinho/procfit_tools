@@ -19,7 +19,7 @@ from procfit.application.dto import (
     ResultadoDto,
 )
 from procfit.domain.enums import ExportFormato
-from procfit.domain.interfaces import Exporter, ParametroRepository, QueryExecutor, QueryRepository
+from procfit.domain.interfaces import CampoRepository, Exporter, ParametroRepository, QueryExecutor, QueryRepository
 
 
 class ListarConsultasUseCase:
@@ -85,11 +85,34 @@ class ExecutarConsultaUseCase:
         param_repo: ParametroRepository,
         executor: QueryExecutor,
         exporters: dict[ExportFormato, Exporter],
+        campo_repo: CampoRepository | None = None,
     ) -> None:
         self._repo = repo
         self._param_repo = param_repo
         self._executor = executor
         self._exporters = exporters
+        self._campo_repo = campo_repo
+        self._campos_cache: dict[str, list] = {}
+
+    def _filtrar_colunas(self, table: pa.Table, nome: str) -> pa.Table:
+        """Filtra e renomeia colunas conforme CONSULTAS_CAMPOS. No-op se não há repo."""
+        if self._campo_repo is None:
+            return table
+        if nome not in self._campos_cache:
+            self._campos_cache[nome] = self._campo_repo.listar_por_consulta(nome)
+        campos = self._campos_cache[nome]
+        if not campos:
+            return table
+        available = set(table.column_names)
+        selected = [c.campo for c in campos if c.campo in available]
+        if not selected:
+            return table
+        filtered = table.select(selected)
+        new_names = [
+            c.titulo if c.titulo else c.campo
+            for c in campos if c.campo in available
+        ]
+        return filtered.rename_columns(new_names)
 
     def _preparar(self, nome: str, valores: dict[str, str]) -> str:
         """Busca o SQL e valida os parâmetros obrigatórios. Retorna o SQL bruto."""
@@ -119,6 +142,7 @@ class ExecutarConsultaUseCase:
         sql = self._preparar(nome, valores)
         start = time.perf_counter()
         table = self._executor.executar(sql, valores)
+        table = self._filtrar_colunas(table, nome)
         return table, time.perf_counter() - start
 
     def gerar_sql(self, nome: str, valores: dict[str, str]) -> str:
@@ -144,6 +168,7 @@ class ExecutarConsultaUseCase:
         # 3. Executar
         t0 = time.perf_counter()
         table = self._executor.executar(sql, valores)
+        table = self._filtrar_colunas(table, nome)
         t_consulta = time.perf_counter() - t0
 
         # 4. Exportar (streaming)

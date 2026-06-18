@@ -29,6 +29,15 @@ class QueryParametro:
         return bool(self.titulo) and self.titulo.rstrip().endswith("*")
 
 
+@dataclass(frozen=True)
+class QueryCampo:
+    """Coluna de saída definida em CONSULTAS_CAMPOS."""
+    campo: str
+    ordem: int
+    titulo: Optional[str] = None
+    formatacao: Optional[str] = None
+
+
 @dataclass
 class SqlQuery:
     """

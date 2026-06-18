@@ -35,6 +35,7 @@ from procfit.domain.enums import ExportFormato
 from procfit.infrastructure.config import DbConfig, ExportConfig, _SERVICE as _KR_SERVICE
 from procfit.infrastructure.database import (
     ConnectorXExecutor,
+    SqlServerCampoRepo,
     SqlServerParamRepo,
     SqlServerQueryRepo,
 )
@@ -163,6 +164,7 @@ def _setup_app() -> tuple[ListarConsultasUseCase, DescreverConsultaUseCase, Exec
     export_cfg = ExportConfig()
     query_repo = SqlServerQueryRepo(db_cfg)
     param_repo = SqlServerParamRepo(db_cfg)
+    campo_repo = SqlServerCampoRepo(db_cfg)
     executor = ConnectorXExecutor(db_cfg)
     exporters = {
         ExportFormato.CSV: CsvExporter(delimiter=export_cfg.csv_delimiter),
@@ -170,7 +172,7 @@ def _setup_app() -> tuple[ListarConsultasUseCase, DescreverConsultaUseCase, Exec
     }
     list_uc = ListarConsultasUseCase(query_repo)
     show_uc = DescreverConsultaUseCase(query_repo, param_repo)
-    run_uc = ExecutarConsultaUseCase(query_repo, param_repo, executor, exporters)
+    run_uc = ExecutarConsultaUseCase(query_repo, param_repo, executor, exporters, campo_repo)
     return list_uc, show_uc, run_uc
 
 
@@ -588,12 +590,13 @@ def _make_run_command() -> click.Command:
     export_cfg = ExportConfig()
     query_repo = SqlServerQueryRepo(db_cfg)
     param_repo = SqlServerParamRepo(db_cfg)
+    campo_repo = SqlServerCampoRepo(db_cfg)
     executor = ConnectorXExecutor(db_cfg)
     exporters = {
         ExportFormato.CSV: CsvExporter(delimiter=export_cfg.csv_delimiter),
         ExportFormato.XLSX: XlsxExporter(sheet_name=export_cfg.xlsx_sheet_name),
     }
-    run_uc = ExecutarConsultaUseCase(query_repo, param_repo, executor, exporters)
+    run_uc = ExecutarConsultaUseCase(query_repo, param_repo, executor, exporters, campo_repo)
 
     return DynamicRunCommand(
         name="run",

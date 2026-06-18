@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from procfit.domain.entities import QueryParametro, SqlQuery
+from procfit.domain.entities import QueryCampo, QueryParametro, SqlQuery
 
 
 class QueryRepository(ABC):
@@ -52,6 +52,15 @@ class ParametroRepository(ABC):
     @abstractmethod
     def listar_por_consulta(self, nome_consulta: str) -> list[QueryParametro]:
         """Retorna os parâmetros de uma consulta, ordenados por ORDEM."""
+        ...
+
+
+class CampoRepository(ABC):
+    """Acesso à tabela CONSULTAS_CAMPOS (PBS_NAZARIA_DICIONARIO_DEVELOPER)."""
+
+    @abstractmethod
+    def listar_por_consulta(self, nome_consulta: str) -> list[QueryCampo]:
+        """Retorna as colunas de saída de uma consulta, ordenadas por ORDEM."""
         ...
 
 

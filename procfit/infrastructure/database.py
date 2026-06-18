@@ -16,8 +16,8 @@ import pyarrow as pa
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects import mssql as sa_mssql
 
-from procfit.domain.entities import QueryParametro, SqlQuery
-from procfit.domain.interfaces import ParametroRepository, QueryExecutor, QueryRepository
+from procfit.domain.entities import QueryCampo, QueryParametro, SqlQuery
+from procfit.domain.interfaces import CampoRepository, ParametroRepository, QueryExecutor, QueryRepository
 from procfit.infrastructure.config import DbConfig
 
 logger = logging.getLogger(__name__)
@@ -151,6 +151,42 @@ class SqlServerParamRepo(ParametroRepository):
                 lookup=_safe_str(row.get("LOOKUP")),
             ))
         return params
+
+
+class SqlServerCampoRepo(CampoRepository):
+    """Repository para CONSULTAS_CAMPOS (PBS_NAZARIA_DICIONARIO_DEVELOPER)."""
+
+    def __init__(self, config: DbConfig) -> None:
+        self._cfg = config
+
+    def listar_por_consulta(self, nome_consulta: str) -> list[QueryCampo]:
+        _assert_safe_name(nome_consulta)
+        query = (
+            "SELECT ORDEM, CAMPO, TITULO, FORMATACAO "
+            "FROM CONSULTAS_CAMPOS "
+            f"WHERE CONSULTA = {_sql_literal(nome_consulta)} "
+            "AND CAMPO IS NOT NULL "
+            "ORDER BY ORDEM"
+        )
+        logger.debug("Buscando campos: %s", query)
+        try:
+            table = cx.read_sql(self._cfg.conn_dicionario, query, return_type="arrow")
+        except Exception as exc:
+            logger.warning("Erro ao buscar campos de '%s': %s", nome_consulta, exc)
+            return []
+
+        result: list[QueryCampo] = []
+        for row in table.to_pylist():
+            campo = _safe_str(row.get("CAMPO"))
+            if not campo:
+                continue
+            result.append(QueryCampo(
+                campo=campo,
+                ordem=int(row["ORDEM"]),
+                titulo=_safe_str(row.get("TITULO")),
+                formatacao=_safe_str(row.get("FORMATACAO")),
+            ))
+        return result
 
 
 class ConnectorXExecutor(QueryExecutor):
