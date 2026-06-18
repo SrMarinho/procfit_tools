@@ -23,11 +23,34 @@ infrastructure/ SQL Server (connectorx), exporters, config
 
 ## Instalação
 
-O projeto não é instalado como pacote — roda direto da árvore de fontes.
+### Com uv (recomendado)
+
+```powershell
+# Instalar uv (Windows — caso ainda não tenha)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+```bash
+uv tool install .      # instala o comando `procfit` globalmente
+```
+
+Para desenvolvimento (roda direto da árvore de fontes):
 
 ```bash
 uv sync                # instala as dependências no venv
-cp .env.example .env   # preencha host, usuário e senha
+uv run main.py --help
+```
+
+### Sem uv (pip puro)
+
+```bash
+pip install .
+```
+
+Em ambos os casos, copie o `.env.example` se quiser usar fallback via variáveis de ambiente:
+
+```bash
+cp .env.example .env
 ```
 
 ## Configuração
