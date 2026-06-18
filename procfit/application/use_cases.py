@@ -104,21 +104,14 @@ class ExecutarConsultaUseCase:
         if not campos:
             return table
         available = set(table.column_names)
-        seen: set[str] = set()
-        arrays: list[pa.ChunkedArray] = []
-        names: list[str] = []
-        for c in campos:
-            if c.campo not in available:
-                continue
-            title = c.titulo or c.campo
-            if title in seen:
-                title = c.campo
-            seen.add(title)
-            arrays.append(table.column(c.campo))
-            names.append(title)
-        if not arrays:
+        pairs = [
+            (c.titulo or c.campo, table.column(c.campo))
+            for c in campos if c.campo in available
+        ]
+        if not pairs:
             return table
-        return pa.Table.from_arrays(arrays, names=names)
+        names, arrays = zip(*pairs)
+        return pa.Table.from_arrays(list(arrays), names=list(names))
 
     def _preparar(self, nome: str, valores: dict[str, str]) -> str:
         """Busca o SQL e valida os parâmetros obrigatórios. Retorna o SQL bruto."""
