@@ -82,7 +82,7 @@ def _render_metricas(
         t.add_row("Tempo total", f"{tempo_total}s")
     if tamanho is not None:
         t.add_row("Tamanho", _human_size(tamanho))
-    t.add_row("Vazão", f"{vazao:,.0f} linhas/s".replace(",", "."))
+    t.add_row("Vazão", f"{vazao:.0f} linhas/s")
     dest.print(t)
 
 
