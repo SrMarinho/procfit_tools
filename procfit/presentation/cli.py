@@ -196,10 +196,12 @@ def _init_logging() -> None:
 # ═══════════════════════════════════════════════════════════════════
 
 _CONFIG_FIELDS = [
-    ("host",   "Host SQL Server",  "localhost"),
-    ("port",   "Porta",            "1433"),
-    ("user",   "Usuário",          ""),
-    ("driver", "Driver ODBC",      "ODBC Driver 17 for SQL Server"),
+    ("host",                "Host SQL Server",              "localhost"),
+    ("port",                "Porta",                        "1433"),
+    ("database_dados",      "Banco de dados (dados)",       "PBS_NAZARIA_DADOS_DEVELOPER"),
+    ("database_dicionario", "Banco de dados (dicionário)",  "PBS_NAZARIA_DICIONARIO_DEVELOPER"),
+    ("user",                "Usuário",                      ""),
+    ("driver",              "Driver ODBC",                  "ODBC Driver 17 for SQL Server"),
 ]
 
 
@@ -207,11 +209,16 @@ _CONFIG_FIELDS = [
 def config_set(
     host: Annotated[Optional[str], typer.Option(help="Host SQL Server")] = None,
     port: Annotated[Optional[str], typer.Option(help="Porta")] = None,
+    database_dados: Annotated[Optional[str], typer.Option(help="Banco de dados (dados)")] = None,
+    database_dicionario: Annotated[Optional[str], typer.Option(help="Banco de dados (dicionário)")] = None,
     user: Annotated[Optional[str], typer.Option(help="Usuário SQL Server")] = None,
     driver: Annotated[Optional[str], typer.Option(help="Driver ODBC")] = None,
 ) -> None:
     """Salva a configuração no **Windows Credential Manager**."""
-    vals = dict(host=host, port=port, user=user, driver=driver)
+    vals = dict(
+        host=host, port=port, database_dados=database_dados,
+        database_dicionario=database_dicionario, user=user, driver=driver,
+    )
     for key, label, default in _CONFIG_FIELDS:
         val = vals.get(key)
         if val is None:
