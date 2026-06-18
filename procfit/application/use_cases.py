@@ -104,15 +104,21 @@ class ExecutarConsultaUseCase:
         if not campos:
             return table
         available = set(table.column_names)
-        selected = [c.campo for c in campos if c.campo in available]
-        if not selected:
+        seen: set[str] = set()
+        arrays: list[pa.ChunkedArray] = []
+        names: list[str] = []
+        for c in campos:
+            if c.campo not in available:
+                continue
+            title = c.titulo or c.campo
+            if title in seen:
+                title = c.campo
+            seen.add(title)
+            arrays.append(table.column(c.campo))
+            names.append(title)
+        if not arrays:
             return table
-        filtered = table.select(selected)
-        new_names = [
-            c.titulo if c.titulo else c.campo
-            for c in campos if c.campo in available
-        ]
-        return filtered.rename_columns(new_names)
+        return pa.Table.from_arrays(arrays, names=names)
 
     def _preparar(self, nome: str, valores: dict[str, str]) -> str:
         """Busca o SQL e valida os parâmetros obrigatórios. Retorna o SQL bruto."""

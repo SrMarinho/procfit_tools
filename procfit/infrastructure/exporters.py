@@ -37,10 +37,10 @@ class CsvExporter(Exporter):
         if include_header:
             writer.writerow(table.column_names)
 
-        # Streaming por batches
         for batch in table.to_batches():
-            for row in batch.to_pylist():
-                writer.writerow(list(row.values()))
+            cols = [batch.column(i).to_pylist() for i in range(batch.num_columns)]
+            for i in range(batch.num_rows):
+                writer.writerow([cols[c][i] for c in range(len(cols))])
                 total += 1
 
         return total
@@ -66,11 +66,11 @@ class XlsxExporter(Exporter):
         # Cabeçalho
         ws.append(list(table.column_names))
 
-        # Streaming por batches
         total = 0
         for batch in table.to_batches():
-            for row in batch.to_pylist():
-                ws.append(list(row.values()))
+            cols = [batch.column(i).to_pylist() for i in range(batch.num_columns)]
+            for i in range(batch.num_rows):
+                ws.append([cols[c][i] for c in range(len(cols))])
                 total += 1
 
         wb.save(output)
