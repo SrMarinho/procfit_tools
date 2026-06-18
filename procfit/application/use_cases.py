@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from src.application.dto import (
+from procfit.application.dto import (
     ConsultaDetalheDto,
     ConsultaDto,
     ParametroDto,
     ResultadoDto,
 )
-from src.domain.enums import ExportFormato
-from src.domain.interfaces import Exporter, ParametroRepository, QueryExecutor, QueryRepository
+from procfit.domain.enums import ExportFormato
+from procfit.domain.interfaces import Exporter, ParametroRepository, QueryExecutor, QueryRepository
 
 
 class ListarConsultasUseCase:

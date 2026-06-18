@@ -16,9 +16,9 @@ import pyarrow as pa
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects import mssql as sa_mssql
 
-from src.domain.entities import QueryParametro, SqlQuery
-from src.domain.interfaces import ParametroRepository, QueryExecutor, QueryRepository
-from src.infrastructure.config import DbConfig
+from procfit.domain.entities import QueryParametro, SqlQuery
+from procfit.domain.interfaces import ParametroRepository, QueryExecutor, QueryRepository
+from procfit.infrastructure.config import DbConfig
 
 logger = logging.getLogger(__name__)
 

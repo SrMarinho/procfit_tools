@@ -1,4 +1,4 @@
 """Entry point para python -m src."""
-from src.presentation.cli import main
+from procfit.presentation.cli import main
 
 main()

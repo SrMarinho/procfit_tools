@@ -11,7 +11,7 @@ from typing import TextIO
 
 import pyarrow as pa
 
-from src.domain.interfaces import Exporter
+from procfit.domain.interfaces import Exporter
 
 
 class CsvExporter(Exporter):

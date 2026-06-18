@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from src.domain.entities import QueryParametro, SqlQuery
-from src.infrastructure.config import DbConfig
-from src.infrastructure.database import (
+from procfit.domain.entities import QueryParametro, SqlQuery
+from procfit.infrastructure.config import DbConfig
+from procfit.infrastructure.database import (
     SqlServerParamRepo,
     SqlServerQueryRepo,
     ConnectorXExecutor,

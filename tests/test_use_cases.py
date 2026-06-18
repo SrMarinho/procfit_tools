@@ -10,14 +10,14 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 
-from src.application.use_cases import (
+from procfit.application.use_cases import (
     DescreverConsultaUseCase,
     ExecutarConsultaUseCase,
     ListarConsultasUseCase,
 )
-from src.domain.entities import QueryParametro, SqlQuery
-from src.domain.enums import ExportFormato
-from src.domain.interfaces import Exporter
+from procfit.domain.entities import QueryParametro, SqlQuery
+from procfit.domain.enums import ExportFormato
+from procfit.domain.interfaces import Exporter
 
 
 @pytest.fixture

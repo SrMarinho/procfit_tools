@@ -25,19 +25,19 @@ from rich.console import Console
 from rich.syntax import Syntax
 from rich.table import Table
 
-from src.application.use_cases import (
+from procfit.application.use_cases import (
     DescreverConsultaUseCase,
     ExecutarConsultaUseCase,
     ListarConsultasUseCase,
 )
-from src.domain.enums import ExportFormato
-from src.infrastructure.config import DbConfig, ExportConfig
-from src.infrastructure.database import (
+from procfit.domain.enums import ExportFormato
+from procfit.infrastructure.config import DbConfig, ExportConfig
+from procfit.infrastructure.database import (
     ConnectorXExecutor,
     SqlServerParamRepo,
     SqlServerQueryRepo,
 )
-from src.infrastructure.exporters import CsvExporter, XlsxExporter
+from procfit.infrastructure.exporters import CsvExporter, XlsxExporter
 
 logger = logging.getLogger(__name__)
 

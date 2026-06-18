@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from src.domain.entities import QueryParametro, SqlQuery
+from procfit.domain.entities import QueryParametro, SqlQuery
 
 
 class QueryRepository(ABC):

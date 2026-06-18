@@ -10,7 +10,7 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
-from src.infrastructure.exporters import CsvExporter, XlsxExporter
+from procfit.infrastructure.exporters import CsvExporter, XlsxExporter
 
 
 @pytest.fixture
