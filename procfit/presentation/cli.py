@@ -8,12 +8,15 @@ Padrões:
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional, TypeVar
+
+import pyarrow as pa
 
 import click
 import keyring
@@ -418,8 +421,9 @@ class DynamicRunCommand(click.Command):
             opt = click.Option(
                 param_decls=[f"--{opt_name}"],
                 help=p.titulo or p.nome,
-                default=None,
+                default=(),
                 type=str,
+                multiple=True,
                 required=False,
                 expose_value=True,
             )
@@ -436,28 +440,53 @@ class DynamicRunCommand(click.Command):
         verbose = ctx.params.get("verbose", False)
         force = ctx.params.get("force", False)
         dry_run = ctx.params.get("dry_run", False)
-        stdout = ctx.params.get("stdout", False)
+        stdout_flag = ctx.params.get("stdout", False)
+        no_header = ctx.params.get("no_header", False)
 
         if verbose:
             logging.getLogger().setLevel(logging.DEBUG)
 
-        no_header = ctx.params.get("no_header", False)
+        # Separa params fixos dos dinâmicos; detecta multi-valor
         fixas = ("consulta", "format", "output", "verbose", "force", "dry_run", "stdout", "no_header")
-        valores: dict[str, str] = {}
+        valores_base: dict[str, str] = {}
+        valores_multi: dict[str, list[str]] = {}
         for key, value in ctx.params.items():
             if key in fixas:
                 continue
-            if value is not None:
-                valores[key.upper()] = str(value)
+            if isinstance(value, tuple):
+                if len(value) == 1:
+                    valores_base[key.upper()] = value[0]
+                elif len(value) > 1:
+                    valores_multi[key.upper()] = list(value)
+            elif value is not None:
+                valores_base[key.upper()] = str(value)
 
+        # Gera lista de valores: cartesian product dos params multi-valor
+        if valores_multi:
+            mk = list(valores_multi.keys())
+            all_valores: list[dict[str, str]] = [
+                {**valores_base, **dict(zip(mk, combo))}
+                for combo in itertools.product(*[valores_multi[k] for k in mk])
+            ]
+        else:
+            all_valores = [valores_base]
+
+        assert self._run_uc is not None
+        run_uc = self._run_uc
+
+        # ── dry-run ──────────────────────────────────────────────────
         if dry_run:
-            try:
-                assert self._run_uc is not None
-                sql = self._run_uc.gerar_sql(consulta, valores)
-            except ValueError as e:
-                err_console.print(f"[bold red]✖[/] {e}")
-                sys.exit(2)
-            print(sql)
+            n = len(all_valores)
+            for i, valores in enumerate(all_valores):
+                if n > 1:
+                    combo_desc = ", ".join(f"{k}={v}" for k, v in valores.items() if k in valores_multi)
+                    print(f"-- [{i + 1}/{n}] {combo_desc}")
+                try:
+                    sql = run_uc.gerar_sql(consulta, valores)
+                except ValueError as e:
+                    err_console.print(f"[bold red]✖[/] {e}")
+                    sys.exit(2)
+                print(sql)
             return
 
         try:
@@ -466,48 +495,52 @@ class DynamicRunCommand(click.Command):
             err_console.print(f"[bold red]✖[/] {e}")
             sys.exit(2)
 
-        assert self._run_uc is not None
-        run_uc = self._run_uc
         try:
             descricao = run_uc.obter_descricao(consulta)
         except Exception:
             descricao = ""
         rotulo = f"[cyan]{consulta}[/]" + (f" — {descricao}" if descricao else "")
 
-        def _executar(thunk: Callable[[], T], status_console: Console) -> T:
-            try:
-                with status_console.status(f"Executando {rotulo}..."):
-                    return _run_interruptible(thunk)
-            except KeyboardInterrupt:
-                err_console.print("\n[yellow]⚠ Cancelado pelo usuário.[/]")
-                sys.exit(130)
-            except ValueError as e:
-                err_console.print(f"[bold red]✖[/] {e}")
-                sys.exit(2)
-            except OSError as e:
-                err_console.print(f"[bold red]✖ Erro ao escrever arquivo:[/] {e}")
-                logger.exception("Falha na escrita")
-                sys.exit(4)
-            except Exception as e:
-                err_console.print(f"[bold red]✖ Erro na execução:[/] {e}")
-                logger.exception("Falha na execução")
-                sys.exit(3)
+        # ── executa todas as combinações e concatena ──────────────────
+        n = len(all_valores)
 
-        if stdout:
+        def _run_all() -> tuple[pa.Table, float]:
+            tables: list[pa.Table] = []
+            total_t = 0.0
+            for i, valores in enumerate(all_valores):
+                label = f"Executando {rotulo} ({i + 1}/{n})..." if n > 1 else f"Executando {rotulo}..."
+                with (err_console if stdout_flag else console).status(label):
+                    t, elapsed = _run_interruptible(lambda v=valores: run_uc.executar_tabela(consulta, v))
+                tables.append(t)
+                total_t += elapsed
+            return (pa.concat_tables(tables) if len(tables) > 1 else tables[0]), total_t
+
+        try:
+            table, t_consulta = _run_all()
+        except KeyboardInterrupt:
+            err_console.print("\n[yellow]⚠ Cancelado pelo usuário.[/]")
+            sys.exit(130)
+        except ValueError as e:
+            err_console.print(f"[bold red]✖[/] {e}")
+            sys.exit(2)
+        except Exception as e:
+            err_console.print(f"[bold red]✖ Erro na execução:[/] {e}")
+            logger.exception("Falha na execução")
+            sys.exit(3)
+
+        export_cfg = ExportConfig()
+
+        # ── stdout ────────────────────────────────────────────────────
+        if stdout_flag:
             if formato is ExportFormato.XLSX:
                 err_console.print("[bold red]✖ XLSX é binário; --stdout só suporta csv.[/]")
                 sys.exit(2)
-            table, t_consulta = _executar(
-                lambda: run_uc.executar_tabela(consulta, valores), err_console
-            )
-            exporter = CsvExporter(ExportConfig().csv_delimiter)
+            exporter = CsvExporter(export_cfg.csv_delimiter)
             linhas = exporter.exportar_stream(table, sys.stdout, include_header=not no_header)
-            _render_metricas(
-                err_console, linhas=linhas, colunas=table.num_columns,
-                tempo_consulta=t_consulta,
-            )
+            _render_metricas(err_console, linhas=linhas, colunas=table.num_columns, tempo_consulta=t_consulta)
             return
 
+        # ── arquivo ───────────────────────────────────────────────────
         if output_str:
             output = Path(output_str)
             if output.parent and not output.parent.exists():
@@ -516,38 +549,30 @@ class DynamicRunCommand(click.Command):
                 if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
                     console.print("Cancelado.")
                     sys.exit(0)
-            if formato is ExportFormato.CSV:
-                table, t_consulta = _executar(
-                    lambda: run_uc.executar_tabela(consulta, valores), console
-                )
-                exporter = CsvExporter(ExportConfig().csv_delimiter)
+            try:
                 t1 = time.perf_counter()
-                linhas = exporter.exportar(table, output, include_header=not no_header)
+                if formato is ExportFormato.CSV:
+                    exporter_csv = CsvExporter(export_cfg.csv_delimiter)
+                    linhas = exporter_csv.exportar(table, output, include_header=not no_header)
+                else:
+                    from procfit.infrastructure.exporters import XlsxExporter as _Xlsx
+                    exporter_xlsx = _Xlsx(export_cfg.xlsx_sheet_name)
+                    linhas = exporter_xlsx.exportar(table, output)
                 t_export = round(time.perf_counter() - t1, 2)
-                tamanho = output.stat().st_size if output.exists() else 0
-                console.print(f"[bold green]✔ Concluído![/] {output}")
-                _render_metricas(
-                    console, linhas=linhas, colunas=table.num_columns,
-                    tempo_consulta=t_consulta, tempo_export=t_export,
-                    tempo_total=round(t_consulta + t_export, 2), tamanho=tamanho,
-                )
-            else:
-                resultado = _executar(
-                    lambda: run_uc.execute(consulta, valores, formato, output), console
-                )
-                console.print(f"[bold green]✔ Concluído![/] {resultado.arquivo}")
-                _render_metricas(
-                    console, linhas=resultado.linhas, colunas=resultado.colunas,
-                    tempo_consulta=resultado.tempo_consulta,
-                    tempo_export=resultado.tempo_export,
-                    tempo_total=resultado.tempo_segundos,
-                    tamanho=resultado.tamanho_bytes,
-                )
+            except OSError as e:
+                err_console.print(f"[bold red]✖ Erro ao escrever arquivo:[/] {e}")
+                logger.exception("Falha na escrita")
+                sys.exit(4)
+            tamanho = output.stat().st_size if output.exists() else 0
+            console.print(f"[bold green]✔ Concluído![/] {output}")
+            _render_metricas(
+                console, linhas=linhas, colunas=table.num_columns,
+                tempo_consulta=t_consulta, tempo_export=t_export,
+                tempo_total=round(t_consulta + t_export, 2), tamanho=tamanho,
+            )
             return
 
-        table, t_consulta = _executar(
-            lambda: run_uc.executar_tabela(consulta, valores), console
-        )
+        # ── preview ───────────────────────────────────────────────────
         _render_preview(table, t_consulta)
 
     @staticmethod
