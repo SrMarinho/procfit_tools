@@ -180,6 +180,7 @@ app = typer.Typer(
     help="CLI para executar consultas do Procfit ERP direto no SQL Server.",
     no_args_is_help=True,
     rich_markup_mode="rich",
+    add_completion=False,
 )
 
 config_app = typer.Typer(help="Gerencia a configuração de conexão.", rich_markup_mode="rich")
