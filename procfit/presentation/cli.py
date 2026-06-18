@@ -1,16 +1,10 @@
 """Interface de linha de comando (CLI) do procfit.
 
 Padrões:
-- Command: cada comando (list, show, run) é um Click Command
-- Dynamic Command (RunCommand): subclasse de click.Command que injeta
-  dinamicamente as opções vindas do banco CONSULTAS_PARAMS, com proteção
-  de timeout para evitar travamento se o banco estiver offline
-- Factory / DI manual: o wiring das dependências é feito no setup_app()
-
-A CLI usa Click (base do Typer) diretamente para o comando `run` porque
-precisamos de acesso completo ao mecanismo de parse de argumentos para
-injetar opções dinamicamente. Os comandos `list` e `show` usam @click.command
-normal.
+- Typer para list / show / config (rich help automático).
+- DynamicRunCommand (click.Command) para run: injeta flags do banco em parse_args.
+  Adicionado ao grupo Typer via typer.main.get_command() em main().
+- Factory / DI manual: wiring de dependências em _setup_app() / _make_run_command().
 """
 from __future__ import annotations
 
@@ -18,12 +12,15 @@ import logging
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar
+from typing import Annotated, Any, Callable, Optional, TypeVar
 
 import click
+import keyring
+import typer
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.table import Table
+from typer.main import get_command
 
 from procfit.application.use_cases import (
     DescreverConsultaUseCase,
@@ -31,7 +28,6 @@ from procfit.application.use_cases import (
     ListarConsultasUseCase,
 )
 from procfit.domain.enums import ExportFormato
-import keyring
 from procfit.infrastructure.config import DbConfig, ExportConfig, _SERVICE as _KR_SERVICE
 from procfit.infrastructure.database import (
     ConnectorXExecutor,
@@ -69,7 +65,6 @@ def _render_metricas(
     tempo_total: float | None = None,
     tamanho: int | None = None,
 ) -> None:
-    """Renderiza a tabela de métricas no console informado."""
     vazao = linhas / tempo_consulta if tempo_consulta else 0
     t = Table(show_header=False, box=None, pad_edge=False)
     t.add_column(style="dim")
@@ -88,7 +83,6 @@ def _render_metricas(
 
 
 def _render_preview(table: Any, tempo_consulta: float) -> None:
-    """Imprime os resultados como tabela rich no terminal (preview)."""
     total = table.num_rows
     rich_t = Table(header_style="bold cyan")
     for col in table.column_names:
@@ -107,21 +101,15 @@ def _render_preview(table: Any, tempo_consulta: float) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Helpers: Timeout para chamadas ao banco
+# Helpers: Timeout / thread interruptível
 # ═══════════════════════════════════════════════════════════════════
 
 class TimeoutError_(Exception):
-    """A chamada ao banco excedeu o tempo limite."""
+    pass
 
 T = TypeVar("T")
 
 def _call_with_timeout(func: Callable[[], T], timeout: int = 15) -> T:
-    """
-    Executa uma função em thread separada com timeout.
-
-    Retorna o valor da função ou levanta TimeoutError_ se exceder o timeout.
-    Útil para chamadas ao banco (connectorx não tem timeout nativo).
-    """
     result: list[T] = []
     exception: list[Exception] = []
 
@@ -137,20 +125,12 @@ def _call_with_timeout(func: Callable[[], T], timeout: int = 15) -> T:
 
     if thread.is_alive():
         raise TimeoutError_(f"Timeout de {timeout}s excedido")
-
     if exception:
         raise exception[0]
-
     return result[0]
 
 
 def _run_interruptible(func: Callable[[], T]) -> T:
-    """Executa func em thread daemon, deixando o main thread livre para Ctrl+C.
-
-    connectorx é Rust e segura a GIL durante o fetch, bloqueando o
-    KeyboardInterrupt. Rodando em daemon e fazendo join em fatias curtas, o
-    Ctrl+C é entregue imediatamente; a thread daemon morre junto com o processo.
-    """
     result: list[T] = []
     exception: list[BaseException] = []
 
@@ -175,112 +155,94 @@ def _run_interruptible(func: Callable[[], T]) -> T:
 # ═══════════════════════════════════════════════════════════════════
 
 def _setup_app() -> tuple[ListarConsultasUseCase, DescreverConsultaUseCase, ExecutarConsultaUseCase]:
-    """
-    Factory method: cria toda a árvore de dependências.
-    Padrão: Simple Factory / DI Container manual.
-    """
-    db_cfg = DbConfig.from_env()
+    db_cfg = DbConfig.load()
     export_cfg = ExportConfig()
-
-    # Repositories
     query_repo = SqlServerQueryRepo(db_cfg)
     param_repo = SqlServerParamRepo(db_cfg)
-
-    # Executor
     executor = ConnectorXExecutor(db_cfg)
-
-    # Exporters (Strategy)
     exporters = {
         ExportFormato.CSV: CsvExporter(delimiter=export_cfg.csv_delimiter),
         ExportFormato.XLSX: XlsxExporter(sheet_name=export_cfg.xlsx_sheet_name),
     }
-
-    # Use Cases
     list_uc = ListarConsultasUseCase(query_repo)
     show_uc = DescreverConsultaUseCase(query_repo, param_repo)
     run_uc = ExecutarConsultaUseCase(query_repo, param_repo, executor, exporters)
-
     return list_uc, show_uc, run_uc
 
 
 # ═══════════════════════════════════════════════════════════════════
-# CLI base
+# App Typer
 # ═══════════════════════════════════════════════════════════════════
 
-@click.group(help="CLI para executar consultas do Procfit ERP direto no SQL Server.")
-def cli() -> None:
-    """Procfit CLI — consultas modernas sem precisar do desktop legado."""
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(levelname)s | %(message)s",
-    )
+app = typer.Typer(
+    name="procfit",
+    help="CLI para executar consultas do Procfit ERP direto no SQL Server.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
+
+config_app = typer.Typer(help="Gerencia a configuração de conexão.", rich_markup_mode="rich")
+app.add_typer(config_app, name="config")
+
+
+def _init_logging() -> None:
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s | %(message)s")
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Comando: config
+# Comando: config set / show
 # ═══════════════════════════════════════════════════════════════════
 
 _CONFIG_FIELDS = [
-    ("host",                "Host SQL Server",              "PROCFIT_DB_HOST",        "localhost"),
-    ("port",                "Porta",                        "PROCFIT_DB_PORT",        "1433"),
-    ("database_dados",      "Banco de dados (dados)",       "PROCFIT_DB_DADOS",       "PBS_NAZARIA_DADOS_DEVELOPER"),
-    ("database_dicionario", "Banco de dados (dicionário)",  "PROCFIT_DB_DICIONARIO",  "PBS_NAZARIA_DICIONARIO_DEVELOPER"),
-    ("user",                "Usuário",                      "PROCFIT_DB_USER",        ""),
-    ("driver",              "Driver ODBC",                  "PROCFIT_DB_DRIVER",      "ODBC Driver 17 for SQL Server"),
+    ("host",                "Host SQL Server",              "localhost"),
+    ("port",                "Porta",                        "1433"),
+    ("database_dados",      "Banco de dados (dados)",       "PBS_NAZARIA_DADOS_DEVELOPER"),
+    ("database_dicionario", "Banco de dados (dicionário)",  "PBS_NAZARIA_DICIONARIO_DEVELOPER"),
+    ("user",                "Usuário",                      ""),
+    ("driver",              "Driver ODBC",                  "ODBC Driver 17 for SQL Server"),
 ]
 
 
-@cli.group("config", help="Gerencia a configuração de conexão.")
-def cmd_config() -> None:
-    pass
-
-
-@cmd_config.command("set", help="Salva a configuração no Windows Credential Manager.")
-@click.option("--host",                default=None, help="Host SQL Server")
-@click.option("--port",                default=None, help="Porta (default: 1433)")
-@click.option("--database-dados",      default=None, help="Banco de dados (dados)")
-@click.option("--database-dicionario", default=None, help="Banco de dados (dicionário)")
-@click.option("--user",                default=None, help="Usuário SQL Server")
-@click.option("--driver",              default=None, help="Driver ODBC")
+@config_app.command("set")
 def config_set(
-    host: str | None,
-    port: str | None,
-    database_dados: str | None,
-    database_dicionario: str | None,
-    user: str | None,
-    driver: str | None,
+    host: Annotated[Optional[str], typer.Option(help="Host SQL Server")] = None,
+    port: Annotated[Optional[str], typer.Option(help="Porta")] = None,
+    database_dados: Annotated[Optional[str], typer.Option(help="Banco de dados (dados)")] = None,
+    database_dicionario: Annotated[Optional[str], typer.Option(help="Banco de dados (dicionário)")] = None,
+    user: Annotated[Optional[str], typer.Option(help="Usuário SQL Server")] = None,
+    driver: Annotated[Optional[str], typer.Option(help="Driver ODBC")] = None,
 ) -> None:
+    """Salva a configuração no **Windows Credential Manager**."""
     vals = dict(
         host=host, port=port, database_dados=database_dados,
         database_dicionario=database_dicionario, user=user, driver=driver,
     )
-    for key, label, env_var, default in _CONFIG_FIELDS:
+    for key, label, default in _CONFIG_FIELDS:
         val = vals.get(key)
         if val is None:
             current = keyring.get_password(_KR_SERVICE, key) or default
-            val = click.prompt(label, default=current)
+            val = typer.prompt(label, default=current)
         keyring.set_password(_KR_SERVICE, key, val)
 
-    # Password: sempre via prompt mascarado, nunca como flag CLI
-    password = click.prompt("Senha SQL Server", hide_input=True, confirmation_prompt=True)
+    password = typer.prompt("Senha SQL Server", hide_input=True, confirmation_prompt=True)
     keyring.set_password(_KR_SERVICE, "password", password)
-
     console.print("[bold green]✔[/] Configuração salva no Windows Credential Manager.")
 
 
-@cmd_config.command("show", help="Exibe a configuração atual.")
+@config_app.command("show")
 def config_show() -> None:
+    """Exibe a configuração atual (senha mascarada)."""
     cfg = DbConfig.load()
     t = Table(title="Configuração Procfit", header_style="bold cyan")
     t.add_column("Campo", style="dim")
     t.add_column("Valor")
-    t.add_row("Host",                 cfg.host)
-    t.add_row("Porta",                str(cfg.port))
-    t.add_row("Banco dados",          cfg.database_dados)
-    t.add_row("Banco dicionário",     cfg.database_dicionario)
-    t.add_row("Usuário",              cfg.user)
-    t.add_row("Senha",                "***" if cfg.password else "[dim](não definida)[/]")
-    t.add_row("Driver",               cfg.driver)
+    t.add_row("Host",             cfg.host)
+    t.add_row("Porta",            str(cfg.port))
+    t.add_row("Banco dados",      cfg.database_dados)
+    t.add_row("Banco dicionário", cfg.database_dicionario)
+    t.add_row("Usuário",          cfg.user)
+    t.add_row("Senha",            "***" if cfg.password else "[dim](não definida)[/]")
+    t.add_row("Driver",           cfg.driver)
     console.print(t)
     fonte = "[dim]Fonte: Windows Credential Manager[/]" \
         if keyring.get_password(_KR_SERVICE, "host") else \
@@ -288,16 +250,21 @@ def config_show() -> None:
     console.print(fonte)
 
 
-@cli.command("list", help="Lista as consultas (filtros opcionais com LIKE).")
-@click.argument("filtro", required=False)
-@click.option("-d", "--descricao", default=None, help="Filtro LIKE na descrição.")
-def cmd_list(filtro: str | None, descricao: str | None) -> None:
-    """Lista consultas (nome + descrição).
+# ═══════════════════════════════════════════════════════════════════
+# Comando: list
+# ═══════════════════════════════════════════════════════════════════
 
-    FILTRO é um padrão LIKE do SQL Server (use % como curinga) aplicado ao
-    NOME. Use -d/--descricao para filtrar pela DESCRIÇÃO. Os dois combinam
-    com AND. Ex: 'B2B%', '%PAGAMENTO%', --descricao '%cliente%'.
+@app.command("list")
+def cmd_list(
+    filtro: Annotated[Optional[str], typer.Argument(help="Filtro LIKE no nome (ex: 'B2B%')")] = None,
+    descricao: Annotated[Optional[str], typer.Option("-d", "--descricao", help="Filtro LIKE na descrição")] = None,
+) -> None:
+    """Lista as consultas disponíveis (nome + descrição).
+
+    FILTRO é um padrão LIKE do SQL Server (use % como curinga) aplicado ao nome.
+    Use [cyan]-d[/] para filtrar pela descrição. Os dois combinam com AND.
     """
+    _init_logging()
     list_uc, _, _ = _setup_app()
     try:
         consultas = _call_with_timeout(
@@ -305,7 +272,7 @@ def cmd_list(filtro: str | None, descricao: str | None) -> None:
         )
     except (TimeoutError_, Exception) as e:
         err_console.print(f"[bold red]✖ Erro de conexão:[/] {e}")
-        raise sys.exit(1)
+        raise typer.Exit(1)
 
     filtro_desc = " ".join(
         p for p in (
@@ -329,28 +296,33 @@ def cmd_list(filtro: str | None, descricao: str | None) -> None:
     console.print(f"Total: [bold]{len(consultas)}[/] consultas")
 
 
-@cli.command("show", help="Mostra detalhes de uma consulta e seus parâmetros.")
-@click.argument("consulta")
-@click.option("-s", "--sql", "mostrar_sql", is_flag=True, help="Exibe também o SQL (formatado).")
-@click.option("--raw", is_flag=True, help="Imprime apenas o SQL cru (pipeable, sem mais nada).")
-def cmd_show(consulta: str, mostrar_sql: bool, raw: bool) -> None:
-    """Mostra parâmetros, flags e metadados de uma consulta.
+# ═══════════════════════════════════════════════════════════════════
+# Comando: show
+# ═══════════════════════════════════════════════════════════════════
 
-    Por padrão o SQL não é exibido. Use -s/--sql para vê-lo formatado junto
-    dos detalhes, ou --raw para imprimir só o SQL cru (pipeable).
+@app.command("show")
+def cmd_show(
+    consulta: Annotated[str, typer.Argument(help="Nome da consulta")],
+    mostrar_sql: Annotated[bool, typer.Option("-s", "--sql", help="Exibe o SQL formatado")] = False,
+    raw: Annotated[bool, typer.Option("--raw", help="Imprime só o SQL cru (pipeable)")] = False,
+) -> None:
+    """Mostra detalhes de uma consulta: descrição e parâmetros esperados.
+
+    Por padrão o SQL não é exibido. Use [cyan]-s[/] para vê-lo formatado,
+    ou [cyan]--raw[/] para imprimir só o SQL cru (pipeable).
     """
+    _init_logging()
     _, show_uc, _ = _setup_app()
     try:
         detalhe = _call_with_timeout(lambda: show_uc.execute(consulta), timeout=10)
     except (TimeoutError_, Exception) as e:
         err_console.print(f"[bold red]✖ Erro de conexão:[/] {e}")
-        raise sys.exit(1)
+        raise typer.Exit(1)
 
     if detalhe is None:
         err_console.print(f"[bold red]✖ Consulta '{consulta}' não encontrada.[/]")
-        raise sys.exit(1)
+        raise typer.Exit(1)
 
-    # --raw: só o SQL cru (sem cor/cabeçalho), pipeable via stdout.
     if raw:
         print(detalhe.sql.strip())
         return
@@ -380,25 +352,17 @@ def cmd_show(consulta: str, mostrar_sql: bool, raw: bool) -> None:
         req = "[green]sim[/]" if p.obrigatorio else "[dim]não[/]"
         table.add_row(str(p.ordem), f"--{p.flag}", req, p.titulo, p.lookup or "—")
     console.print(table)
-    console.print(f"\n[dim]Dica: uv run main.py run {detalhe.nome} --help[/]")
+    console.print(f"\n[dim]Dica: procfit run {detalhe.nome} --help[/]")
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Comando RUN com Parâmetros Dinâmicos
+# Comando RUN com Parâmetros Dinâmicos (Click direto)
 # ═══════════════════════════════════════════════════════════════════
 
 class DynamicRunCommand(click.Command):
-    """
-    click.Command que injeta dinamicamente opções vindas do banco.
+    """click.Command que injeta dinamicamente opções vindas do banco."""
 
-    Padrão: Template Method — herda click.Command e sobrescreve
-    parse_args para injetar parâmetros antes do parse.
-
-    A injeção roda em uma thread separada com timeout de 5s para
-    evitar travamento caso o SQL Server não esteja acessível.
-    """
-
-    DB_TIMEOUT = 5  # segundos
+    DB_TIMEOUT = 5
 
     def __init__(
         self,
@@ -413,22 +377,12 @@ class DynamicRunCommand(click.Command):
         self._param_cache: dict[str, bool] = {}
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        """
-        Sobrescreve parse_args para injetar opções dinâmicas.
-
-        Usa thread com timeout para a chamada ao banco.
-        Se o banco não responder em DB_TIMEOUT segundos, segue sem
-        parâmetros dinâmicos (mostra apenas as opções fixas).
-        """
         consulta = self._extract_consulta(args)
-
         if consulta and self._param_repo and consulta not in self._param_cache:
             self._load_params_threaded(consulta)
-
         return super().parse_args(ctx, args)
 
     def _load_params_threaded(self, consulta: str) -> None:
-        """Carrega parâmetros em thread separada com timeout."""
         assert self._param_repo is not None
         param_repo = self._param_repo
         result: list[Any] = []
@@ -447,7 +401,6 @@ class DynamicRunCommand(click.Command):
         if thread.is_alive():
             logger.warning("Timeout ao carregar parâmetros do banco para '%s'", consulta)
             return
-
         if exception:
             logger.warning("Erro ao carregar parâmetros: %s", exception[0])
             return
@@ -457,10 +410,8 @@ class DynamicRunCommand(click.Command):
             self._add_option(p)
 
     def _add_option(self, p: Any) -> None:
-        """Adiciona um click.Option para o parâmetro, se já não existir."""
         opt_name = p.flag_name
         existing = {o.name for o in self.params if isinstance(o, click.Option)}
-
         if opt_name not in existing:
             opt = click.Option(
                 param_decls=[f"--{opt_name}"],
@@ -473,40 +424,36 @@ class DynamicRunCommand(click.Command):
             self.params.append(opt)
 
     def invoke(self, ctx: click.Context) -> Any:
-        """Executa o comando: extrai params dinâmicos e chama o use case."""
         consulta = ctx.params.get("consulta", "")
         if not consulta:
             err_console.print("[bold red]✖ Nome da consulta é obrigatório.[/]")
-            raise sys.exit(1)
+            sys.exit(1)
 
         formato_str = ctx.params.get("format", "csv")
         output_str: str | None = ctx.params.get("output")
         verbose = ctx.params.get("verbose", False)
         force = ctx.params.get("force", False)
         dry_run = ctx.params.get("dry_run", False)
+        stdout = ctx.params.get("stdout", False)
 
         if verbose:
             logging.getLogger().setLevel(logging.DEBUG)
 
-        stdout = ctx.params.get("stdout", False)
-
-        # Extrai parâmetros dinâmicos (tudo que NÃO é opção fixa)
-        valores: dict[str, str] = {}
         fixas = ("consulta", "format", "output", "verbose", "force", "dry_run", "stdout")
+        valores: dict[str, str] = {}
         for key, value in ctx.params.items():
             if key in fixas:
                 continue
             if value is not None:
                 valores[key.upper()] = str(value)
 
-        # --dry-run: gera o SQL final com os parâmetros, sem executar (pipeable).
         if dry_run:
             try:
                 assert self._run_uc is not None
                 sql = self._run_uc.gerar_sql(consulta, valores)
             except ValueError as e:
                 err_console.print(f"[bold red]✖[/] {e}")
-                raise sys.exit(2)
+                sys.exit(2)
             print(sql)
             return
 
@@ -514,7 +461,7 @@ class DynamicRunCommand(click.Command):
             formato = ExportFormato.from_str(formato_str)
         except ValueError as e:
             err_console.print(f"[bold red]✖[/] {e}")
-            raise sys.exit(2)
+            sys.exit(2)
 
         assert self._run_uc is not None
         run_uc = self._run_uc
@@ -525,30 +472,28 @@ class DynamicRunCommand(click.Command):
         rotulo = f"[cyan]{consulta}[/]" + (f" — {descricao}" if descricao else "")
 
         def _executar(thunk: Callable[[], T], status_console: Console) -> T:
-            """Roda o thunk com spinner e tratamento padrão de erros/Ctrl+C."""
             try:
                 with status_console.status(f"Executando {rotulo}..."):
                     return _run_interruptible(thunk)
             except KeyboardInterrupt:
                 err_console.print("\n[yellow]⚠ Cancelado pelo usuário.[/]")
-                raise sys.exit(130)
+                sys.exit(130)
             except ValueError as e:
                 err_console.print(f"[bold red]✖[/] {e}")
-                raise sys.exit(2)
+                sys.exit(2)
             except OSError as e:
                 err_console.print(f"[bold red]✖ Erro ao escrever arquivo:[/] {e}")
                 logger.exception("Falha na escrita")
-                raise sys.exit(4)
+                sys.exit(4)
             except Exception as e:
                 err_console.print(f"[bold red]✖ Erro na execução:[/] {e}")
                 logger.exception("Falha na execução")
-                raise sys.exit(3)
+                sys.exit(3)
 
-        # ── Modo --stdout: CSV cru no stdout; status/métricas no stderr ──
         if stdout:
             if formato is ExportFormato.XLSX:
                 err_console.print("[bold red]✖ XLSX é binário; --stdout só suporta csv.[/]")
-                raise sys.exit(2)
+                sys.exit(2)
             table, t_consulta = _executar(
                 lambda: run_uc.executar_tabela(consulta, valores), err_console
             )
@@ -560,7 +505,6 @@ class DynamicRunCommand(click.Command):
             )
             return
 
-        # ── Modo -o: grava arquivo ──
         if output_str:
             output = Path(output_str)
             if output.parent and not output.parent.exists():
@@ -568,7 +512,7 @@ class DynamicRunCommand(click.Command):
             if output.exists() and not force:
                 if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
                     console.print("Cancelado.")
-                    raise sys.exit(0)
+                    sys.exit(0)
             resultado = _executar(
                 lambda: run_uc.execute(consulta, valores, formato, output), console
             )
@@ -582,7 +526,6 @@ class DynamicRunCommand(click.Command):
             )
             return
 
-        # ── Default: preview como tabela no terminal ──
         table, t_consulta = _executar(
             lambda: run_uc.executar_tabela(consulta, valores), console
         )
@@ -590,87 +533,50 @@ class DynamicRunCommand(click.Command):
 
     @staticmethod
     def _extract_consulta(args: list[str]) -> Optional[str]:
-        """Extrai o nome da consulta dos argumentos (primeiro não-opção)."""
         for arg in args:
             if not arg.startswith("-"):
                 return arg
         return None
 
 
-# Registra o comando `run` manualmente com a classe customizada
 def _make_run_command() -> click.Command:
-    """Factory: cria o comando run com DynamicRunCommand."""
-    db_cfg = DbConfig.from_env()
+    db_cfg = DbConfig.load()
     export_cfg = ExportConfig()
-
     query_repo = SqlServerQueryRepo(db_cfg)
     param_repo = SqlServerParamRepo(db_cfg)
     executor = ConnectorXExecutor(db_cfg)
-
     exporters = {
         ExportFormato.CSV: CsvExporter(delimiter=export_cfg.csv_delimiter),
         ExportFormato.XLSX: XlsxExporter(sheet_name=export_cfg.xlsx_sheet_name),
     }
-
     run_uc = ExecutarConsultaUseCase(query_repo, param_repo, executor, exporters)
 
-    cmd = DynamicRunCommand(
+    return DynamicRunCommand(
         name="run",
         param_repo=param_repo,
         run_uc=run_uc,
         params=[
             click.Argument(["consulta"], required=True),
-            click.Option(
-                ["--format", "-f"],
-                default="csv",
-                show_default=True,
-                type=click.Choice(["csv", "xlsx"]),
-                help="Formato de exportação",
-            ),
-            click.Option(
-                ["--output", "-o"],
-                default=None,
-                type=click.Path(),
-                help="Arquivo de saída. Sem -o, os resultados aparecem como tabela no terminal.",
-            ),
-            click.Option(
-                ["--stdout"],
-                is_flag=True,
-                help="Imprime o CSV cru no stdout (pipeable); métricas vão pro stderr.",
-            ),
-            click.Option(
-                ["--verbose", "-v"],
-                is_flag=True,
-                help="Modo verboso com logs de debug",
-            ),
-            click.Option(
-                ["--force"],
-                is_flag=True,
-                help="Sobrescreve o arquivo de saída sem perguntar",
-            ),
-            click.Option(
-                ["--dry-run"],
-                is_flag=True,
-                help="Gera o SQL com os parâmetros substituídos (não executa).",
-            ),
+            click.Option(["--format", "-f"], default="csv", show_default=True,
+                         type=click.Choice(["csv", "xlsx"]), help="Formato de exportação"),
+            click.Option(["--output", "-o"], default=None, type=click.Path(),
+                         help="Arquivo de saída. Sem -o, mostra tabela no terminal."),
+            click.Option(["--stdout"], is_flag=True,
+                         help="CSV cru no stdout (pipeable); métricas no stderr."),
+            click.Option(["--verbose", "-v"], is_flag=True, help="Modo verboso"),
+            click.Option(["--force"], is_flag=True, help="Sobrescreve sem perguntar"),
+            click.Option(["--dry-run"], is_flag=True,
+                         help="Gera o SQL parametrizado (não executa)."),
         ],
         help="Executa uma consulta e exporta o resultado.\n\n"
-        "Os parâmetros específicos da consulta são carregados do banco "
-        "e aparecem automaticamente. Se o banco não estiver acessível, "
-        "apenas as opções fixas são mostradas.\n\n"
-        "Dica: use 'uv run main.py show CONSULTA' para ver os parâmetros esperados.",
-        epilog="Exemplo: uv run main.py run OL_APURACOES_MARCAS --data-ini 2024-01-01 --data-fim 2024-12-31 -f xlsx",
+             "Os parâmetros da consulta são carregados automaticamente do banco.\n\n"
+             "Dica: use 'procfit show CONSULTA' para ver os parâmetros esperados.",
+        epilog="Exemplo: procfit run OL_APURACOES_MARCAS --data-ini 2024-01-01 -f xlsx -o saida.xlsx",
     )
-    return cmd
-
-
-cli.add_command(_make_run_command(), "run")
 
 
 def main() -> None:
     """Entry point do CLI."""
-    # Força UTF-8 no console (Windows usa cp1252 por padrão e quebra com
-    # acentos e box-drawing das tabelas/SQL).
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
@@ -678,7 +584,11 @@ def main() -> None:
                 reconfigure(encoding="utf-8", newline="")
             except Exception:
                 pass
-    cli()
+
+    # Injeta o DynamicRunCommand (Click) no grupo Typer
+    click_app = get_command(app)
+    click_app.add_command(_make_run_command(), "run")  # type: ignore[union-attr]
+    click_app()
 
 
 if __name__ == "__main__":
