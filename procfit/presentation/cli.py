@@ -31,7 +31,8 @@ from procfit.application.use_cases import (
     ListarConsultasUseCase,
 )
 from procfit.domain.enums import ExportFormato
-from procfit.infrastructure.config import DbConfig, ExportConfig
+import keyring
+from procfit.infrastructure.config import DbConfig, ExportConfig, _SERVICE as _KR_SERVICE
 from procfit.infrastructure.database import (
     ConnectorXExecutor,
     SqlServerParamRepo,
@@ -213,6 +214,78 @@ def cli() -> None:
         level=logging.WARNING,
         format="%(levelname)s | %(message)s",
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Comando: config
+# ═══════════════════════════════════════════════════════════════════
+
+_CONFIG_FIELDS = [
+    ("host",                "Host SQL Server",              "PROCFIT_DB_HOST",        "localhost"),
+    ("port",                "Porta",                        "PROCFIT_DB_PORT",        "1433"),
+    ("database_dados",      "Banco de dados (dados)",       "PROCFIT_DB_DADOS",       "PBS_NAZARIA_DADOS_DEVELOPER"),
+    ("database_dicionario", "Banco de dados (dicionário)",  "PROCFIT_DB_DICIONARIO",  "PBS_NAZARIA_DICIONARIO_DEVELOPER"),
+    ("user",                "Usuário",                      "PROCFIT_DB_USER",        ""),
+    ("driver",              "Driver ODBC",                  "PROCFIT_DB_DRIVER",      "ODBC Driver 17 for SQL Server"),
+]
+
+
+@cli.group("config", help="Gerencia a configuração de conexão.")
+def cmd_config() -> None:
+    pass
+
+
+@cmd_config.command("set", help="Salva a configuração no Windows Credential Manager.")
+@click.option("--host",                default=None, help="Host SQL Server")
+@click.option("--port",                default=None, help="Porta (default: 1433)")
+@click.option("--database-dados",      default=None, help="Banco de dados (dados)")
+@click.option("--database-dicionario", default=None, help="Banco de dados (dicionário)")
+@click.option("--user",                default=None, help="Usuário SQL Server")
+@click.option("--driver",              default=None, help="Driver ODBC")
+def config_set(
+    host: str | None,
+    port: str | None,
+    database_dados: str | None,
+    database_dicionario: str | None,
+    user: str | None,
+    driver: str | None,
+) -> None:
+    vals = dict(
+        host=host, port=port, database_dados=database_dados,
+        database_dicionario=database_dicionario, user=user, driver=driver,
+    )
+    for key, label, env_var, default in _CONFIG_FIELDS:
+        val = vals.get(key)
+        if val is None:
+            current = keyring.get_password(_KR_SERVICE, key) or default
+            val = click.prompt(label, default=current)
+        keyring.set_password(_KR_SERVICE, key, val)
+
+    # Password: sempre via prompt mascarado, nunca como flag CLI
+    password = click.prompt("Senha SQL Server", hide_input=True, confirmation_prompt=True)
+    keyring.set_password(_KR_SERVICE, "password", password)
+
+    console.print("[bold green]✔[/] Configuração salva no Windows Credential Manager.")
+
+
+@cmd_config.command("show", help="Exibe a configuração atual.")
+def config_show() -> None:
+    cfg = DbConfig.load()
+    t = Table(title="Configuração Procfit", header_style="bold cyan")
+    t.add_column("Campo", style="dim")
+    t.add_column("Valor")
+    t.add_row("Host",                 cfg.host)
+    t.add_row("Porta",                str(cfg.port))
+    t.add_row("Banco dados",          cfg.database_dados)
+    t.add_row("Banco dicionário",     cfg.database_dicionario)
+    t.add_row("Usuário",              cfg.user)
+    t.add_row("Senha",                "***" if cfg.password else "[dim](não definida)[/]")
+    t.add_row("Driver",               cfg.driver)
+    console.print(t)
+    fonte = "[dim]Fonte: Windows Credential Manager[/]" \
+        if keyring.get_password(_KR_SERVICE, "host") else \
+        "[dim]Fonte: variável de ambiente / .env[/]"
+    console.print(fonte)
 
 
 @cli.command("list", help="Lista as consultas (filtros opcionais com LIKE).")

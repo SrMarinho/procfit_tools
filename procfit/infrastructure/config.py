@@ -1,16 +1,24 @@
-"""Configuração carregada de .env / variáveis de ambiente.
+"""Configuração de conexão — lida do Windows Credential Manager (keyring),
+com fallback para variáveis de ambiente / .env.
 
-Padrão: Config Object. Centraliza todas as configs em um objeto tipado.
-Usa python-dotenv para carregar do .env.
+Prioridade: keyring → env var → default hardcoded.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 
+import keyring
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_SERVICE = "procfit"
+
+
+def _get(key: str, env_var: str, default: str = "") -> str:
+    """Lê do Credential Manager; cai para env var se não encontrado."""
+    return keyring.get_password(_SERVICE, key) or os.environ.get(env_var) or default
 
 
 @dataclass(frozen=True)
@@ -45,18 +53,23 @@ class DbConfig:
         return self.conn_str(self.database_dicionario)
 
     @classmethod
-    def from_env(cls) -> DbConfig:
-        """Factory method: cria DbConfig a partir de variáveis de ambiente."""
+    def load(cls) -> DbConfig:
+        """Carrega configuração do Credential Manager (fallback: env var / default)."""
         return cls(
-            host=os.environ.get("PROCFIT_DB_HOST", "localhost"),
-            port=int(os.environ.get("PROCFIT_DB_PORT", "1433")),
-            database_dados=os.environ.get("PROCFIT_DB_DADOS", "PBS_NAZARIA_DADOS_DEVELOPER"),
-            database_dicionario=os.environ.get("PROCFIT_DB_DICIONARIO", "PBS_NAZARIA_DICIONARIO_DEVELOPER"),
-            user=os.environ.get("PROCFIT_DB_USER", ""),
-            password=os.environ.get("PROCFIT_DB_PASSWORD", ""),
-            driver=os.environ.get("PROCFIT_DB_DRIVER", "ODBC Driver 17 for SQL Server"),
-            where_extra=os.environ.get("PROCFIT_DB_WHERE_EXTRA", ""),
+            host=_get("host", "PROCFIT_DB_HOST", "localhost"),
+            port=int(_get("port", "PROCFIT_DB_PORT", "1433")),
+            database_dados=_get("database_dados", "PROCFIT_DB_DADOS", "PBS_NAZARIA_DADOS_DEVELOPER"),
+            database_dicionario=_get("database_dicionario", "PROCFIT_DB_DICIONARIO", "PBS_NAZARIA_DICIONARIO_DEVELOPER"),
+            user=_get("user", "PROCFIT_DB_USER", ""),
+            password=_get("password", "PROCFIT_DB_PASSWORD", ""),
+            driver=_get("driver", "PROCFIT_DB_DRIVER", "ODBC Driver 17 for SQL Server"),
+            where_extra=_get("where_extra", "PROCFIT_DB_WHERE_EXTRA", ""),
         )
+
+    @classmethod
+    def from_env(cls) -> DbConfig:
+        """Alias de load() para compatibilidade."""
+        return cls.load()
 
 
 @dataclass(frozen=True)

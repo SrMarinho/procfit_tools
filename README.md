@@ -32,7 +32,19 @@ cp .env.example .env   # preencha host, usuário e senha
 
 ## Configuração
 
-Variáveis lidas do `.env` (ver `.env.example`):
+As credenciais são armazenadas no **Windows Credential Manager** (criptografado
+pelo SO). Configure via CLI:
+
+```bash
+procfit config set          # prompt interativo para todos os campos
+procfit config set --host 172.25.48.210 --user sa   # flags para campos não-sensíveis
+                                                     # senha sempre via prompt mascarado
+procfit config show         # exibe configuração atual (senha mascarada)
+```
+
+**Prioridade de leitura:** Credential Manager → variável de ambiente → default hardcoded.
+
+Fallback via variáveis de ambiente (`.env` também é lido — ver `.env.example`):
 
 | Variável | Default | Descrição |
 |----------|---------|-----------|
@@ -45,8 +57,7 @@ Variáveis lidas do `.env` (ver `.env.example`):
 
 ## Uso
 
-Invocação via `main.py` (entry point que adiciona `src/` ao path e chama
-`procfit.presentation.cli:main`):
+Invocação via `main.py` (dev) ou `procfit` (instalado):
 
 ```bash
 # Lista nome + descrição. Filtro LIKE opcional (estilo SQL Server):
