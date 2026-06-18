@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
@@ -391,10 +390,12 @@ class DynamicRunCommand(click.Command):
             err_console.print(f"[bold red]✖[/] {e}")
             raise sys.exit(2)
 
-        # Define output padrão se não especificado
+        # Output é obrigatório (sem -o não grava nada)
         if not output_str:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            output_str = f"{consulta}_{timestamp}.{formato.extension}"
+            err_console.print(
+                "[bold red]✖ Informe o arquivo de saída com -o/--output.[/]"
+            )
+            raise sys.exit(2)
         output = Path(output_str)
 
         # Cria as pastas do output se não existirem
@@ -492,7 +493,7 @@ def _make_run_command() -> click.Command:
                 ["--output", "-o"],
                 default=None,
                 type=click.Path(),
-                help="Arquivo de saída (default: <consulta>_<timestamp>.<ext>)",
+                help="Arquivo de saída (obrigatório, exceto em --dry-run)",
             ),
             click.Option(
                 ["--verbose", "-v"],
