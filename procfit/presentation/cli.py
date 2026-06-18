@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional, TypeVar
 
@@ -439,7 +440,8 @@ class DynamicRunCommand(click.Command):
         if verbose:
             logging.getLogger().setLevel(logging.DEBUG)
 
-        fixas = ("consulta", "format", "output", "verbose", "force", "dry_run", "stdout")
+        no_header = ctx.params.get("no_header", False)
+        fixas = ("consulta", "format", "output", "verbose", "force", "dry_run", "stdout", "no_header")
         valores: dict[str, str] = {}
         for key, value in ctx.params.items():
             if key in fixas:
@@ -498,7 +500,7 @@ class DynamicRunCommand(click.Command):
                 lambda: run_uc.executar_tabela(consulta, valores), err_console
             )
             exporter = CsvExporter(ExportConfig().csv_delimiter)
-            linhas = exporter.exportar_stream(table, sys.stdout)
+            linhas = exporter.exportar_stream(table, sys.stdout, include_header=not no_header)
             _render_metricas(
                 err_console, linhas=linhas, colunas=table.num_columns,
                 tempo_consulta=t_consulta,
@@ -513,17 +515,33 @@ class DynamicRunCommand(click.Command):
                 if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
                     console.print("Cancelado.")
                     sys.exit(0)
-            resultado = _executar(
-                lambda: run_uc.execute(consulta, valores, formato, output), console
-            )
-            console.print(f"[bold green]✔ Concluído![/] {resultado.arquivo}")
-            _render_metricas(
-                console, linhas=resultado.linhas, colunas=resultado.colunas,
-                tempo_consulta=resultado.tempo_consulta,
-                tempo_export=resultado.tempo_export,
-                tempo_total=resultado.tempo_segundos,
-                tamanho=resultado.tamanho_bytes,
-            )
+            if formato is ExportFormato.CSV:
+                table, t_consulta = _executar(
+                    lambda: run_uc.executar_tabela(consulta, valores), console
+                )
+                exporter = CsvExporter(ExportConfig().csv_delimiter)
+                t1 = time.perf_counter()
+                linhas = exporter.exportar(table, output, include_header=not no_header)
+                t_export = round(time.perf_counter() - t1, 2)
+                tamanho = output.stat().st_size if output.exists() else 0
+                console.print(f"[bold green]✔ Concluído![/] {output}")
+                _render_metricas(
+                    console, linhas=linhas, colunas=table.num_columns,
+                    tempo_consulta=t_consulta, tempo_export=t_export,
+                    tempo_total=round(t_consulta + t_export, 2), tamanho=tamanho,
+                )
+            else:
+                resultado = _executar(
+                    lambda: run_uc.execute(consulta, valores, formato, output), console
+                )
+                console.print(f"[bold green]✔ Concluído![/] {resultado.arquivo}")
+                _render_metricas(
+                    console, linhas=resultado.linhas, colunas=resultado.colunas,
+                    tempo_consulta=resultado.tempo_consulta,
+                    tempo_export=resultado.tempo_export,
+                    tempo_total=resultado.tempo_segundos,
+                    tamanho=resultado.tamanho_bytes,
+                )
             return
 
         table, t_consulta = _executar(
@@ -567,6 +585,8 @@ def _make_run_command() -> click.Command:
             click.Option(["--force"], is_flag=True, help="Sobrescreve sem perguntar"),
             click.Option(["--dry-run"], is_flag=True,
                          help="Gera o SQL parametrizado (não executa)."),
+            click.Option(["--no-header"], is_flag=True,
+                         help="Omite o cabeçalho no CSV (--stdout ou -o)."),
         ],
         help="Executa uma consulta e exporta o resultado.\n\n"
              "Os parâmetros da consulta são carregados automaticamente do banco.\n\n"

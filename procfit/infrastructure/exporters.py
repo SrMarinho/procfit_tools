@@ -26,16 +26,16 @@ class CsvExporter(Exporter):
     def __init__(self, delimiter: str = ";") -> None:
         self._delimiter = delimiter
 
-    def exportar(self, table: pa.Table, output: Path) -> int:
+    def exportar(self, table: pa.Table, output: Path, include_header: bool = True) -> int:
         with open(output, "w", newline="", encoding="utf-8-sig") as f:
-            return self.exportar_stream(table, f)
+            return self.exportar_stream(table, f, include_header=include_header)
 
-    def exportar_stream(self, table: pa.Table, f: TextIO) -> int:
+    def exportar_stream(self, table: pa.Table, f: TextIO, include_header: bool = True) -> int:
         total = 0
         writer = csv.writer(f, delimiter=self._delimiter)
 
-        # Cabeçalho
-        writer.writerow(table.column_names)
+        if include_header:
+            writer.writerow(table.column_names)
 
         # Streaming por batches
         for batch in table.to_batches():
