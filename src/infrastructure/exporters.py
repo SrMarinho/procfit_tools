@@ -6,7 +6,9 @@ Ambos usam streaming (write sem carregar tudo na RAM).
 from __future__ import annotations
 
 import csv
+import sys
 from pathlib import Path
+from typing import TextIO
 
 import pyarrow as pa
 
@@ -26,19 +28,24 @@ class CsvExporter(Exporter):
         self._delimiter = delimiter
 
     def exportar(self, table: pa.Table, output: Path) -> int:
-        total = 0
+        # "-" → escreve no stdout (pipeable)
+        if str(output) == "-":
+            return self._write(table, sys.stdout)
         with open(output, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=self._delimiter)
+            return self._write(table, f)
 
-            # Cabeçalho
-            writer.writerow(table.column_names)
+    def _write(self, table: pa.Table, f: TextIO) -> int:
+        total = 0
+        writer = csv.writer(f, delimiter=self._delimiter)
 
-            # Streaming por batches
-            for batch in table.to_batches():
-                rows = batch.to_pylist()
-                for row in rows:
-                    writer.writerow(list(row.values()))
-                    total += 1
+        # Cabeçalho
+        writer.writerow(table.column_names)
+
+        # Streaming por batches
+        for batch in table.to_batches():
+            for row in batch.to_pylist():
+                writer.writerow(list(row.values()))
+                total += 1
 
         return total
 
@@ -55,6 +62,8 @@ class XlsxExporter(Exporter):
         self._sheet_name = sheet_name
 
     def exportar(self, table: pa.Table, output: Path) -> int:
+        if str(output) == "-":
+            raise ValueError("XLSX é binário e não pode ir para o stdout; use -f csv ou um arquivo.")
         from openpyxl import Workbook
 
         wb = Workbook(write_only=True)

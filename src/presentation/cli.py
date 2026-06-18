@@ -390,23 +390,29 @@ class DynamicRunCommand(click.Command):
             err_console.print(f"[bold red]✖[/] {e}")
             raise sys.exit(2)
 
-        # Output é obrigatório (sem -o não grava nada)
+        # Output é obrigatório (sem -o não grava nada). Use "-" para stdout.
         if not output_str:
             err_console.print(
-                "[bold red]✖ Informe o arquivo de saída com -o/--output.[/]"
+                "[bold red]✖ Informe o arquivo de saída com -o/--output "
+                "(use -o - para stdout).[/]"
             )
             raise sys.exit(2)
+        to_stdout = output_str == "-"
         output = Path(output_str)
+        # Em modo stdout os dados vão pro stdout; status/métricas vão pro stderr
+        # para não corromper o output.
+        msg_console = err_console if to_stdout else console
 
-        # Cria as pastas do output se não existirem
-        if output.parent and not output.parent.exists():
-            output.parent.mkdir(parents=True, exist_ok=True)
+        if not to_stdout:
+            # Cria as pastas do output se não existirem
+            if output.parent and not output.parent.exists():
+                output.parent.mkdir(parents=True, exist_ok=True)
 
-        # Proteção contra sobrescrita (spec 4.4)
-        if output.exists() and not force:
-            if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
-                console.print("Cancelado.")
-                raise sys.exit(0)
+            # Proteção contra sobrescrita (spec 4.4)
+            if output.exists() and not force:
+                if not click.confirm(f"Arquivo '{output}' já existe. Sobrescrever?"):
+                    console.print("Cancelado.")
+                    raise sys.exit(0)
 
         try:
             assert self._run_uc is not None
@@ -416,7 +422,7 @@ class DynamicRunCommand(click.Command):
             except Exception:
                 descricao = ""
             rotulo = f"[cyan]{consulta}[/]" + (f" — {descricao}" if descricao else "")
-            with console.status(f"Executando {rotulo}..."):
+            with msg_console.status(f"Executando {rotulo}..."):
                 resultado = _run_interruptible(
                     lambda: run_uc.execute(consulta, valores, formato, output)
                 )
@@ -435,7 +441,8 @@ class DynamicRunCommand(click.Command):
             logger.exception("Falha na execução")
             raise sys.exit(3)
 
-        console.print(f"[bold green]✔ Concluído![/] {resultado.arquivo}")
+        destino = "stdout" if to_stdout else resultado.arquivo
+        msg_console.print(f"[bold green]✔ Concluído![/] {destino}")
 
         vazao = resultado.linhas / resultado.tempo_consulta if resultado.tempo_consulta else 0
         metricas = Table(show_header=False, box=None, pad_edge=False)
@@ -446,9 +453,10 @@ class DynamicRunCommand(click.Command):
         metricas.add_row("Tempo consulta", f"{resultado.tempo_consulta}s")
         metricas.add_row("Tempo exportação", f"{resultado.tempo_export}s")
         metricas.add_row("Tempo total", f"{resultado.tempo_segundos}s")
-        metricas.add_row("Tamanho", _human_size(resultado.tamanho_bytes))
+        if not to_stdout:
+            metricas.add_row("Tamanho", _human_size(resultado.tamanho_bytes))
         metricas.add_row("Vazão", f"{vazao:,.0f} linhas/s".replace(",", "."))
-        console.print(metricas)
+        msg_console.print(metricas)
 
     @staticmethod
     def _extract_consulta(args: list[str]) -> Optional[str]:
@@ -493,7 +501,7 @@ def _make_run_command() -> click.Command:
                 ["--output", "-o"],
                 default=None,
                 type=click.Path(),
-                help="Arquivo de saída (obrigatório, exceto em --dry-run)",
+                help="Arquivo de saída (obrigatório, exceto em --dry-run). Use - para stdout (csv).",
             ),
             click.Option(
                 ["--verbose", "-v"],

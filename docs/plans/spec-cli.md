@@ -140,7 +140,7 @@ Na execução, o valor da flag é substituído no SQL via placeholder `:PARAMETR
 | Flag | Alias | Descrição | Default |
 |------|-------|-----------|---------|
 | `--format` | `-f` | Formato de exportação: `csv` ou `xlsx` | `csv` |
-| `--output` | `-o` | Caminho do arquivo de saída (**obrigatório**, exceto em `--dry-run`) | — |
+| `--output` | `-o` | Caminho do arquivo de saída (**obrigatório**, exceto em `--dry-run`). `-o -` → CSV no stdout (métricas no stderr) | — |
 | `--verbose` | `-v` | Log detalhado da execução | `false` |
 | `--force` | — | Sobrescreve a saída sem perguntar | `false` |
 | `--dry-run` | — | Gera o SQL com os parâmetros substituídos e imprime (não executa) | `false` |

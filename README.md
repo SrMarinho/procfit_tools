@@ -77,7 +77,7 @@ Flags fixas do `run`:
 | Flag | Alias | Default | Descrição |
 |------|-------|---------|-----------|
 | `--format` | `-f` | `csv` | `csv` ou `xlsx` |
-| `--output` | `-o` | — | Arquivo de saída (**obrigatório**, exceto em `--dry-run`; pastas criadas se não existirem) |
+| `--output` | `-o` | — | Arquivo de saída (**obrigatório**, exceto em `--dry-run`; pastas criadas se não existirem). Use `-o -` para enviar o CSV ao stdout (pipeable); métricas vão pro stderr |
 | `--verbose` | `-v` | `false` | Logs de debug |
 | `--force` | — | `false` | Sobrescreve a saída sem perguntar |
 | `--dry-run` | — | `false` | Gera o SQL parametrizado e imprime, sem executar (não valida obrigatórios) |
