@@ -92,8 +92,10 @@ def _render_preview(table: Any, tempo_consulta: float) -> None:
     rich_t = Table(header_style="bold cyan")
     for col in table.column_names:
         rich_t.add_column(str(col))
-    for row in table.slice(0, _PREVIEW_LIMIT).to_pylist():
-        rich_t.add_row(*["" if v is None else str(v) for v in row.values()])
+    preview = table.slice(0, _PREVIEW_LIMIT)
+    cols = [preview.column(i).to_pylist() for i in range(preview.num_columns)]
+    for i in range(preview.num_rows):
+        rich_t.add_row(*["" if cols[c][i] is None else str(cols[c][i]) for c in range(len(cols))])
     console.print(rich_t)
     if total > _PREVIEW_LIMIT:
         console.print(
