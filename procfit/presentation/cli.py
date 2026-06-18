@@ -544,7 +544,7 @@ class DynamicRunCommand(click.Command):
 
         # ── arquivo ───────────────────────────────────────────────────
         if output_str:
-            output = Path(output_str)
+            output = Path(output_str).expanduser()
             if output.parent and not output.parent.exists():
                 output.parent.mkdir(parents=True, exist_ok=True)
             if output.exists() and not force:
