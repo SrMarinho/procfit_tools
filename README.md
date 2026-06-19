@@ -15,11 +15,21 @@ connectorx + pyarrow (Arrow fetch) · openpyxl (XLSX write-only) · python-doten
 Layered (4 camadas):
 
 ```
-presentation/   CLI (Click) — entrada do usuário
+presentation/   CLI — entrada do usuário
+  app.py          monta o app Typer, registra comandos, expõe main()
+  cli.py          shim de compatibilidade (entry point histórico)
+  container.py    composition root (DI manual / Factory)
+  rendering.py    consoles Rich, métricas, preview
+  concurrency.py  timeout / thread interruptível
+  commands/       um módulo por comando: config, health, listing, details, run
 application/    use cases (orquestração) + DTOs
 domain/         entidades, enums, interfaces (ports)
 infrastructure/ SQL Server (connectorx), exporters, config
 ```
+
+A camada de apresentação é fatiada por responsabilidade (SRP): cada comando
+vive no próprio módulo, o wiring de dependências fica no `container.py` e a
+renderização/concorrência são reutilizáveis e isoladas.
 
 ## Instalação
 
