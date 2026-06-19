@@ -231,6 +231,12 @@ def config_set(
         if val is None:
             current = keyring.get_password(_KR_SERVICE, key) or default
             val = typer.prompt(label, default=current)
+        if key == "port":
+            try:
+                int(val)
+            except (ValueError, TypeError):
+                err_console.print(f"[bold red]✖ Porta inválida:[/] '{val}' — use um número (ex: 1433).")
+                raise typer.Exit(1)
         keyring.set_password(_KR_SERVICE, key, val)
 
     password = typer.prompt("Senha SQL Server", hide_input=True, confirmation_prompt=True)
