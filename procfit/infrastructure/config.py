@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import quote_plus
 
 import keyring
 from dotenv import load_dotenv
@@ -48,7 +49,9 @@ class DbConfig:
 
     def conn_str(self, database: str) -> str:
         """Monta DSN para connectorx no formato mssql://."""
-        base = f"mssql://{self.user}:{self.password}@{self.host}:{self.port}/{database}"
+        user = quote_plus(self.user)
+        password = quote_plus(self.password)
+        base = f"mssql://{user}:{password}@{self.host}:{self.port}/{database}"
         escaped_driver = self.driver.replace(" ", "+")
         return f"{base}?driver={escaped_driver}&connect_timeout=5"
 
