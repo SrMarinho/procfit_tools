@@ -207,7 +207,7 @@ class ConnectorXExecutor(QueryExecutor):
         """Substitui placeholders :PARAM por valores escapados e executa."""
         final_sql = self.montar_sql(sql, params)
         logger.debug("Executando SQL: %s", final_sql[:200])
-        table = cx.read_sql(self._cfg.conn_dados, final_sql, return_type="arrow")
+        table = cx.read_sql(self._cfg.conn_dados, "SET NOCOUNT ON;\n" + final_sql, return_type="arrow")
         return table
 
     # Dialeto SQL Server usado só para compilar o bind em literal (sem conexão).
