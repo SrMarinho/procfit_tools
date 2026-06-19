@@ -194,11 +194,22 @@ class TestSubstituir:
         # :A vira 'x:B' (literal), o :B de dentro do valor NÃO é tocado
         assert result == "WHERE a = 'x:B' AND b = 'y'"
 
-    def test_placeholder_nao_fornecido_vira_vazio(self):
-        """Placeholder no SQL sem valor → string vazia (semântica Vazio=Todos)."""
+    def test_placeholder_nao_fornecido_vira_null(self):
+        """Placeholder no SQL sem valor → NULL (semântica Vazio=Todos).
+
+        NULL (não string vazia) é o correto para os padrões do Procfit:
+        TRY_CAST('' AS DATETIME) retorna 1900-01-01 no SQL Server, o que
+        quebraria filtros de data; NULL preserva a semântica 'sem filtro'.
+        """
         sql = "WHERE a = :A AND b = :B"
         result = ConnectorXExecutor._substituir(sql, {"A": "1"})
-        assert result == "WHERE a = '1' AND b = ''"
+        assert result == "WHERE a = '1' AND b = NULL"
+
+    def test_placeholder_vazio_vira_null(self):
+        """Valor explicitamente vazio também vira NULL."""
+        sql = "WHERE a = :A AND b = :B"
+        result = ConnectorXExecutor._substituir(sql, {"A": "1", "B": ""})
+        assert result == "WHERE a = '1' AND b = NULL"
 
 
 class TestSafeName:

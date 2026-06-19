@@ -13,7 +13,7 @@ from typing import Optional
 
 import connectorx as cx
 import pyarrow as pa
-from sqlalchemy import text as sa_text
+from sqlalchemy import String as sa_String, bindparam as sa_bindparam, text as sa_text
 from sqlalchemy.dialects import mssql as sa_mssql
 
 from procfit.domain.entities import QueryCampo, QueryParametro, SqlQuery
@@ -225,8 +225,11 @@ class ConnectorXExecutor(QueryExecutor):
         do connectorx com a segurança do bind nomeado.
 
         Regras:
-        - :PARAMETRO presente no SQL mas não fornecido → string vazia
-          (semântica 'Vazio=Todos' do Procfit).
+        - :PARAMETRO presente no SQL mas não fornecido (ou vazio) → NULL
+          (semântica 'Vazio=Todos' do Procfit). NULL é correto para os padrões
+          do Procfit: NUMERICO_NULL(NULL)=NULL, TRY_CAST(NULL AS DATETIME)=NULL,
+          IIF(LEN(NULL)=1,...)=else. String vazia quebraria datas, pois
+          TRY_CAST('' AS DATETIME)=1900-01-01 (não NULL) no SQL Server.
         - Variáveis T-SQL (@var) NÃO são placeholders — passam intactas.
         - Um valor que contenha texto de outro placeholder não é reinterpretado:
           o render do literal é final, sem nova varredura.
@@ -235,8 +238,11 @@ class ConnectorXExecutor(QueryExecutor):
         needed = set(stmt._bindparams.keys())  # nomes :PARAM detectados pelo SQLAlchemy
         if not needed:
             return sql
-        binds = {nome: params.get(nome, "") for nome in needed}
-        compiled = stmt.bindparams(**binds).compile(
+        binds = [
+            sa_bindparam(nome, params.get(nome) or None, type_=sa_String)
+            for nome in needed
+        ]
+        compiled = stmt.bindparams(*binds).compile(
             dialect=cls._DIALECT,
             compile_kwargs={"literal_binds": True},
         )
